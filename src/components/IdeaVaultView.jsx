@@ -4,9 +4,10 @@ import {
   AlertTriangle, FileImage, Link as LinkIcon,
   Lightbulb, Lock, Hash, ExternalLink, Image as ImageIcon,
   Globe, ChevronDown, ChevronUp, GripVertical, Info, Maximize2,
-  ChevronLeft, ChevronRight, Menu, Star, Rocket
+  ChevronLeft, ChevronRight, Menu, Star, Rocket, Archive, ArchiveRestore
 } from 'lucide-react';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
+import { useArchive } from '../utils/useArchive';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
 
@@ -339,6 +340,9 @@ export default function IdeaVaultView({
     setFormStarred(false);
   };
 
+  const { isArchived, toggleArchived, archivedIds } = useArchive('anonvault_ideas_archived');
+  const [showArchived, setShowArchived] = useState(false);
+
   const handleOpenAdd = () => { resetForm(); setIsFormOpen(true); };
 
   const rootRef = useRef(null);
@@ -567,6 +571,9 @@ export default function IdeaVaultView({
         (idea.title  || '').toLowerCase().includes(q) ||
         (idea.content || '').toLowerCase().includes(q);
       const matchesTag = !selectedTag || (idea.tags && idea.tags.includes(selectedTag));
+      // Archived rows are hidden unless explicitly asked for; the archive view
+      // shows only them, so nothing is ever invisible in both modes.
+      if (showArchived !== archivedIds.includes(idea.id)) return false;
       return matchesSearch && matchesTag;
     });
   };
@@ -677,6 +684,18 @@ export default function IdeaVaultView({
             </div>
           )}
 
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            title={showArchived ? 'Back to active' : 'Show archived'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer ${
+              showArchived
+                ? 'bg-slate-500/[0.14] border-slate-400/30 text-slate-300'
+                : 'bg-white/[0.02] border-white/[0.04] text-slate-500 hover:text-slate-300'
+            }`}>
+            <Archive size={12} />
+            {showArchived ? 'Archived' : 'Archive'}
+          </button>
+
           <CustomDropdown
             value={selectedTag}
             onChange={setSelectedTag}
@@ -744,6 +763,8 @@ export default function IdeaVaultView({
                         onPromote={onPromoteToProject}
                         promotedTo={promotedMap[idea.id]}
                         onOpenConcept={onOpenConcept}
+                        onToggleArchive={toggleArchived}
+                        archived={isArchived(idea.id)}
                       />
                     </div>
                   ))}
@@ -792,6 +813,8 @@ export default function IdeaVaultView({
                         onPromote={onPromoteToProject}
                         promotedTo={promotedMap[idea.id]}
                         onOpenConcept={onOpenConcept}
+                        onToggleArchive={toggleArchived}
+                        archived={isArchived(idea.id)}
                       />
                     </div>
                   ))}
@@ -1187,7 +1210,7 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
 }
 
 /* ─── Idea Card ───────────────────────────────────────── */
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote, promotedTo, onOpenConcept }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote, promotedTo, onOpenConcept, onToggleArchive, archived }) {
   // Without this the funnel leaks: a promoted idea looked identical to an
   // unpromoted one, so the same idea would get promoted twice.
   const isPromoted = !!promotedTo;
@@ -1288,6 +1311,12 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
               <Edit3 size={11} />
             </button>
             
+            <button onClick={() => onToggleArchive && onToggleArchive(idea.id)}
+              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-white/[0.06] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-white/[0.12]"
+              title={archived ? 'Restore from archive' : 'Archive this idea'}>
+              {archived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
+            </button>
+
             <button onClick={() => onDelete(idea.id)}
               className="p-1.5 text-slate-455 hover:text-rose-455 rounded-lg hover:bg-rose-500/[0.08] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-rose-500/20"
               title="Delete idea">

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
+import { useArchive } from '../utils/useArchive';
 import { 
   Plus, Search, Tag, Trash2, Edit3, X, Rocket, Menu, Lock, 
   Globe, ExternalLink, Info, GripVertical, ChevronLeft, ChevronRight, 
   Maximize2, Calendar, Image as ImageIcon, FileImage, AlertTriangle, Hash,
-  ChevronDown, ChevronUp, Star
+  ChevronDown, ChevronUp, Star, Archive, ArchiveRestore
 } from 'lucide-react';
 
 /* ─── tiny helpers ─────────────────────────────────────── */
@@ -254,6 +255,8 @@ export default function ProjectIdeasView({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const { isArchived, toggleArchived, archivedIds } = useArchive('anonvault_projects_archived');
+  const [showArchived, setShowArchived] = useState(false);
   const [viewMode, setViewMode] = useState(() => {
     try { return localStorage.getItem('anonvault_projects_view') || 'board'; }
     catch { return 'board'; }
@@ -667,6 +670,8 @@ export default function ProjectIdeasView({
       // Untagged rows count as backlog, so nothing vanishes behind a filter
       // just because it predates the pipeline.
       const matchesStatus = !selectedStatus || (idea.status || 'backlog') === selectedStatus;
+      // Same rule as the vault: archived rows only appear in archive mode.
+      if (showArchived !== archivedIds.includes(idea.id)) return false;
       return matchesSearch && matchesTag && matchesStatus;
     });
   };
@@ -760,6 +765,18 @@ export default function ProjectIdeasView({
             icon={<Tag size={11} className="text-indigo-400/80" />}
             placeholder="All Tags"
           />
+
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            title={showArchived ? 'Back to active' : 'Show archived'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all cursor-pointer ${
+              showArchived
+                ? 'bg-slate-500/[0.14] border-slate-400/30 text-slate-300'
+                : 'bg-white/[0.02] border-white/[0.04] text-slate-500 hover:text-slate-300'
+            }`}>
+            <Archive size={12} />
+            {showArchived ? 'Archived' : 'Archive'}
+          </button>
 
           <div className="flex items-center gap-1 p-1 rounded-xl"
             style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -863,6 +880,8 @@ export default function ProjectIdeasView({
                           isPinned={pinnedIds.includes(idea.id)}
                           onTogglePin={togglePin}
                           onAdvanceStatus={advanceStatus}
+                          onToggleArchive={toggleArchived}
+                          archived={isArchived(idea.id)}
                         />
                       </div>
                     ))}
@@ -901,6 +920,8 @@ export default function ProjectIdeasView({
                         isPinned={true}
                         onTogglePin={togglePin}
                         onAdvanceStatus={advanceStatus}
+                        onToggleArchive={toggleArchived}
+                        archived={isArchived(idea.id)}
                       />
                     </div>
                   ))}
@@ -947,6 +968,8 @@ export default function ProjectIdeasView({
                         isPinned={false}
                         onTogglePin={togglePin}
                         onAdvanceStatus={advanceStatus}
+                        onToggleArchive={toggleArchived}
+                        archived={isArchived(idea.id)}
                       />
                     </div>
                   ))}
@@ -1312,7 +1335,7 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
   );
 }
 
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onAdvanceStatus }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onAdvanceStatus, onToggleArchive, archived }) {
   const status = PROJECT_STATUS[idea.status || 'backlog'] || PROJECT_STATUS.backlog;
   const images = idea.images || [];
   const links  = idea.links || [];
@@ -1394,6 +1417,12 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
               <Edit3 size={11} />
             </button>
             
+            <button onClick={() => onToggleArchive && onToggleArchive(idea.id)}
+              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-white/[0.06] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-white/[0.12]"
+              title={archived ? 'Restore from archive' : 'Archive this concept'}>
+              {archived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
+            </button>
+
             <button onClick={() => onDelete(idea.id)}
               className="p-1.5 text-slate-455 hover:text-rose-455 rounded-lg hover:bg-rose-500/[0.08] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-rose-500/20"
               title="Delete concept">

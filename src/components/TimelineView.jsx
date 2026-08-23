@@ -101,6 +101,7 @@ export default function TimelineView({
   const [formStarred, setFormStarred] = useState(false);
   const [formStatus, setFormStatus] = useState('pending');
   const [formNotes, setFormNotes] = useState('');
+  const [formRetro, setFormRetro] = useState('');
   const [formCompany, setFormCompany] = useState('');
   const [formPpi, setFormPpi] = useState(false);
   const [formTravel, setFormTravel] = useState(false);
@@ -134,7 +135,7 @@ export default function TimelineView({
     setFormLinks([]);
     setFormDaysLeft('1');
     setFormStarred(false); setFormStatus('pending');
-    setFormNotes(''); 
+    setFormNotes(''); setFormRetro(''); 
     setFormCompany('');
     setFormPpi(false);
     setFormTravel(false);
@@ -164,7 +165,7 @@ export default function TimelineView({
     } else { setFormDaysLeft('1'); }
     setFormStarred(app.priority === 'high');
     setFormStatus(app.status || 'pending');
-    setFormNotes(app.notes || '');
+    setFormNotes(app.notes || ''); setFormRetro(app.retro || '');
     setFormCompany(app.company || '');
     setFormPpi(!!app.ppi);
     setFormTravel(!!app.travel);
@@ -195,6 +196,9 @@ export default function TimelineView({
       deadline: calculatedDeadline.toISOString(),
       priority: formStarred ? 'high' : 'medium',
       status: formStatus, notes: formNotes.trim(),
+      // Only sent once the event has actually resolved, so an unmigrated
+      // database is untouched until there is something to record.
+      ...(formRetro.trim() ? { retro: formRetro.trim() } : {}),
       company: formCompany.trim(),
       ppi: formPpi,
       travel: formTravel,
@@ -757,6 +761,16 @@ export default function TimelineView({
                   onChange={e => setFormNotes(e.target.value)}
                   className="input-premium w-full px-4 py-3 text-[13px] rounded-xl resize-none leading-relaxed font-medium placeholder:text-slate-700" />
               </Field>
+
+              {/* Retro, only once the event has resolved. The funnel counted
+                  outcomes but recorded nothing about them. */}
+              {(formStatus === 'offered' || formStatus === 'rejected') && (
+                <Field label="Retrospective">
+                  <textarea rows={3} placeholder="What worked, what did not, what to do differently…" value={formRetro}
+                    onChange={e => setFormRetro(e.target.value)}
+                    className="input-premium w-full px-4 py-3 text-[13px] rounded-xl resize-none leading-relaxed font-medium placeholder:text-slate-700" />
+                </Field>
+              )}
 
               {/* Links Section */}
               <Field label="Additional Links">
