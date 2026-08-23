@@ -261,7 +261,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
             {/* Social Links Row */}
             <div className="flex items-center gap-3 mb-3.5">
               <a
-                href="https://x.com/Tusharab2004"
+                href="https://x.com/minianondev"
                 target="_blank"
                 rel="noopener noreferrer"
                 title="X (formerly Twitter)"
@@ -273,7 +273,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
                 <span className="absolute -top-7 px-2 py-0.5 bg-slate-900 border border-white/10 text-[9px] text-slate-350 rounded-md opacity-0 group-hover/x:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">X / Twitter</span>
               </a>
               <a
-                href="https://github.com/TuShArBhArDwA"
+                href="https://github.com/minianon"
                 target="_blank"
                 rel="noopener noreferrer"
                 title="GitHub"
@@ -285,7 +285,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
                 <span className="absolute -top-7 px-2 py-0.5 bg-slate-900 border border-white/10 text-[9px] text-slate-350 rounded-md opacity-0 group-hover/gh:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">GitHub</span>
               </a>
               <a
-                href="https://www.linkedin.com/in/bhardwajtushar2004/"
+                href="https://www.linkedin.com/in/minianon/"
                 target="_blank"
                 rel="noopener noreferrer"
                 title="LinkedIn (Bhardwaj Tushar)"
@@ -314,7 +314,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
           <div className="py-4 flex flex-col items-center justify-center shrink-0 w-full gap-2.5">
             <div className="divider w-full px-2 mb-1" />
             <a
-              href="https://x.com/Tusharab2004"
+              href="https://x.com/minianondev"
               target="_blank"
               rel="noopener noreferrer"
               title="X"
@@ -325,7 +325,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
               </svg>
             </a>
             <a
-              href="https://github.com/TuShArBhArDwA"
+              href="https://github.com/minianon"
               target="_blank"
               rel="noopener noreferrer"
               title="GitHub"
@@ -336,7 +336,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
               </svg>
             </a>
             <a
-              href="https://www.linkedin.com/in/bhardwajtushar2004/"
+              href="https://www.linkedin.com/in/minianon/"
               target="_blank"
               rel="noopener noreferrer"
               title="LinkedIn"
