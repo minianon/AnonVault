@@ -6,7 +6,7 @@ import {
 import {
   getCompletionHistory, getTaskReliability, getStreaks, getDayCount
 } from '../services/tasks';
-import { getNotedDates } from '../services/journal';
+import { getNotedDates, getNotes } from '../services/journal';
 
 /* Targets turn the numbers into something with a verdict. 68% means nothing
    on its own; 68% against a target of 80% means something. */
@@ -187,6 +187,12 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
   const reliability = useMemo(() => getTaskReliability(windowDays), [windowDays]);
   const streaks = useMemo(() => getStreaks(180), []);
   const notedDates = useMemo(() => getNotedDates(), []);
+  // The daily log had nowhere to be read back — notes went in and only ever
+  // came out one date at a time. This is the payoff surface.
+  const logEntries = useMemo(
+    () => getNotes(history.map(d => d.date)),
+    [history]
+  );
   const dayCount = useMemo(() => getDayCount(), []);
 
   const totals = history.reduce(
@@ -353,6 +359,46 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
               <p className="text-[12.5px] font-semibold text-slate-400">No completion history yet</p>
               <p className="text-[11px] text-slate-600 mt-1">
                 Add a recurring task and this fills in from tomorrow.
+              </p>
+              <button onClick={() => setActiveTab('tasks')}
+                className="btn-primary mt-4 px-4 py-2 text-[12px] font-bold rounded-xl cursor-pointer">
+                Open Checklist
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Written log for the window */}
+        <div>
+          <SectionHead icon={NotebookPen} title="Log"
+            hint={logEntries.length
+              ? `${logEntries.length} ${logEntries.length === 1 ? 'entry' : 'entries'} · newest first`
+              : `nothing written in the last ${windowDays} days`} />
+          {logEntries.length > 0 ? (
+            <div className="rounded-2xl divide-y divide-white/[0.04] max-h-[300px] overflow-y-auto custom-scrollbar"
+              style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.05)' }}>
+              {logEntries.map(entry => (
+                <button key={entry.date}
+                  onClick={() => onPickDate && onPickDate(entry.date)}
+                  title="Open this day in the Checklist"
+                  className="w-full flex items-start gap-3.5 px-4 py-3 text-left cursor-pointer transition-colors hover:bg-white/[0.025]">
+                  <span className="text-[10px] font-bold tabular-nums text-violet-300/80 shrink-0 mt-[2px] w-[74px]">
+                    {new Date(entry.date + 'T00:00:00').toLocaleDateString(undefined,
+                      { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                  <span className="flex-1 min-w-0 text-[12.5px] text-slate-300 leading-relaxed">
+                    {entry.note}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl px-5 py-8 text-center"
+              style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <NotebookPen size={20} className="text-slate-700 mx-auto mb-2.5" />
+              <p className="text-[12.5px] font-semibold text-slate-400">No log entries yet</p>
+              <p className="text-[11px] text-slate-600 mt-1">
+                Add a line about your day from the top of the Checklist.
               </p>
               <button onClick={() => setActiveTab('tasks')}
                 className="btn-primary mt-4 px-4 py-2 text-[12px] font-bold rounded-xl cursor-pointer">

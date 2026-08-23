@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CalendarRange, Lightbulb, TrendingUp, CheckSquare, X, Zap, ChevronLeft, ChevronRight, Rocket, Quote, LayoutDashboard, Pin, BarChart3 } from 'lucide-react';
+import { CalendarRange, Lightbulb, TrendingUp, CheckSquare, X, Zap, ChevronLeft, ChevronRight, Rocket, Quote, LayoutDashboard, Pin, BarChart3, Hash } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, setMobileOpen }) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -70,6 +70,12 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
   // beside five sections you work in daily, so it sits in a quieter group
   // rather than being removed -- the section and its data are untouched.
   const secondaryItems = [
+    {
+      id: 'tags',
+      label: 'Tags',
+      icon: Hash,
+      accent: '#818cf8',
+    },
     {
       id: 'quotes',
       label: 'Quotes Vault',

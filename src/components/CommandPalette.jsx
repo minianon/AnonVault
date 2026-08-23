@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Search, CornerDownLeft, Plus, CalendarRange, Lightbulb,
-  CheckSquare, Rocket, Quote, LayoutDashboard, BarChart3, ArrowRight
+  CheckSquare, Rocket, Quote, LayoutDashboard, BarChart3, ArrowRight, Hash
 } from 'lucide-react';
 
 /* Every section, so the palette doubles as navigation. */
@@ -13,6 +13,7 @@ const SECTIONS = [
   { tab: 'project-ideas', label: 'Project Ideas',     icon: Rocket,          accent: '#818cf8' },
   { tab: 'review',        label: 'Review',            icon: BarChart3,       accent: '#a78bfa' },
   { tab: 'quotes',        label: 'Quotes Vault',      icon: Quote,           accent: '#f472b6' },
+  { tab: 'tags',          label: 'Tags',              icon: Hash,            accent: '#818cf8' },
 ];
 
 const KIND_META = {
