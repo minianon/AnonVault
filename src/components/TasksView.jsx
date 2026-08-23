@@ -10,6 +10,8 @@ import {
   toggleTaskCompletion, toggleSubtaskCompletion
 } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
+import { getNote, setNote } from '../services/journal';
+import { NotebookPen } from 'lucide-react';
 
 /* ── helpers ───────────────────────────────────────────── */
 function toDateStr(date) {
@@ -748,6 +750,25 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   const sortByPriority = arr =>
     [...arr].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2));
 
+  // One line about the day. Local-first, debounced, so typing never waits
+  // on the network.
+  const [dayNote, setDayNote] = useState('');
+  const noteTimer = useRef(null);
+
+  useEffect(() => {
+    // Loading the note for a new date is exactly what this effect is for.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDayNote(getNote(selectedDate));
+  }, [selectedDate]);
+
+  const onNoteChange = value => {
+    setDayNote(value);
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setNote(selectedDate, value), 600);
+  };
+
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+
   const rootRef = useRef(null);
   useShortcutHooks({
     onNew: () => { setEditingTask(null); setIsFormOpen(true); },
@@ -887,6 +908,21 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
 
       {/* Task list */}
       <div className="flex-1 overflow-y-auto px-4 lg:px-7 py-6 space-y-6 relative z-10 reveal-stagger">
+        {/* Daily log — Review can say how much got done but never what
+            happened, and this is where "what happened" gets recorded. */}
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl"
+          style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <NotebookPen size={13} className="text-slate-600 shrink-0" />
+          <input
+            value={dayNote}
+            onChange={e => onNoteChange(e.target.value)}
+            placeholder="One line about this day…"
+            className="flex-1 bg-transparent border-none outline-none text-[12.5px] text-slate-200 placeholder:text-slate-700 font-medium"
+          />
+          {dayNote.trim() && (
+            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-700 shrink-0">saved</span>
+          )}
+        </div>
         {totalCount === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-24 max-w-sm mx-auto">
             <div className="relative mb-6">

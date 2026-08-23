@@ -26,6 +26,7 @@ import {
 } from './services/supabase';
 import { fetchQuotes, addQuote, updateQuote, deleteQuote } from './services/quotes';
 import { getTasksForDateSync, loadAllTasks, addTask } from './services/tasks';
+import { syncNotes } from './services/journal';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -1557,6 +1558,9 @@ function AppInner() {
         loadAllTasks().catch(err => {
           console.warn('Could not pre-fetch tasks for sidebar count:', err);
         }),
+        // Daily notes are local-first; this just refreshes the local cache
+        // from any other device. Never rejects.
+        syncNotes(),
       ]);
 
       setApplications(appsData);

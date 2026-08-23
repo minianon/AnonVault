@@ -1,11 +1,24 @@
 import { useMemo, useState } from 'react';
 import {
   Menu, Lock, TrendingUp, Flame, CalendarDays, Trophy,
-  AlertTriangle, CheckCircle2, Rocket, Target
+  AlertTriangle, CheckCircle2, Rocket, Target, NotebookPen
 } from 'lucide-react';
 import {
   getCompletionHistory, getTaskReliability, getStreaks, getDayCount
 } from '../services/tasks';
+import { getNotedDates } from '../services/journal';
+
+/* Targets turn the numbers into something with a verdict. 68% means nothing
+   on its own; 68% against a target of 80% means something. */
+const TARGETS_KEY = 'anonvault_targets';
+const DEFAULT_TARGETS = { completion: 80, ships: 2 };
+
+function loadTargets() {
+  try {
+    const raw = localStorage.getItem(TARGETS_KEY);
+    return raw ? { ...DEFAULT_TARGETS, ...JSON.parse(raw) } : DEFAULT_TARGETS;
+  } catch { return DEFAULT_TARGETS; }
+}
 
 const WINDOWS = [
   { value: 7,  label: '7 days'  },
@@ -25,7 +38,9 @@ const FUNNEL = [
 const pct = n => (n === null || n === undefined ? '—' : Math.round(n * 100) + '%');
 
 /* ── Headline stat ──────────────────────────────────────── */
-function StatCard({ icon: Icon, label, value, sub, accent }) {
+function StatCard({ icon: Icon, label, value, sub, accent, target, actual }) {
+  // Only shown when there is a target to compare against.
+  const hit = target != null && actual != null && actual >= target;
   return (
     <div className="rounded-2xl p-4 flex flex-col gap-2.5 relative overflow-hidden"
       style={{
@@ -49,16 +64,31 @@ function StatCard({ icon: Icon, label, value, sub, accent }) {
         </span>
         {sub && <span className="text-[10.5px] font-semibold text-slate-600">{sub}</span>}
       </div>
+      {target != null && (
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+            <div style={{
+              width: `${Math.min(100, Math.round(((actual || 0) / target) * 100))}%`,
+              height: '100%', borderRadius: 99,
+              background: hit ? '#34d399' : accent,
+            }} />
+          </div>
+          <span className="text-[9px] font-bold tabular-nums shrink-0"
+            style={{ color: hit ? '#34d399' : 'rgba(148,163,184,0.55)' }}>
+            /{target}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ── Daily completion bars ──────────────────────────────── */
-function HistoryChart({ history, onPickDate }) {
+function HistoryChart({ history, onPickDate, notedDates }) {
   // A day with nothing scheduled is drawn as a flat marker rather than a
   // zero bar — no work due is not the same as work missed.
   return (
-    <div className="flex items-end gap-[3px] h-28">
+    <div className="flex items-end gap-[3px] h-28 mb-1.5">
       {history.map(d => {
         const empty = d.scheduled === 0;
         const h = empty ? 3 : Math.max(4, Math.round((d.completed / d.scheduled) * 100));
@@ -85,6 +115,12 @@ function HistoryChart({ history, onPickDate }) {
               }}
               className="hover:!opacity-100"
             />
+            {/* A day with a log entry gets a marker, so the chart shows where
+                there is context to read, not just numbers. */}
+            {notedDates?.has(d.date) && (
+              <span className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                style={{ background: '#a78bfa' }} />
+            )}
           </button>
         );
       })}
@@ -136,12 +172,21 @@ function SectionHead({ icon: Icon, title, hint }) {
 
 export default function ReviewView({ applications, projectIdeas, onLock, onMenuToggle, setActiveTab, onPickDate }) {
   const [windowDays, setWindowDays] = useState(30);
+  const [targets, setTargets] = useState(loadTargets);
+  const [editingTargets, setEditingTargets] = useState(false);
+
+  const saveTargets = next => {
+    setTargets(next);
+    try { localStorage.setItem(TARGETS_KEY, JSON.stringify(next)); }
+    catch { /* not critical */ }
+  };
 
   // Recomputed only when the window changes. These read the localStorage
   // caches synchronously, so there is no loading state to manage.
   const history = useMemo(() => getCompletionHistory(windowDays), [windowDays]);
   const reliability = useMemo(() => getTaskReliability(windowDays), [windowDays]);
   const streaks = useMemo(() => getStreaks(180), []);
+  const notedDates = useMemo(() => getNotedDates(), []);
   const dayCount = useMemo(() => getDayCount(), []);
 
   const totals = history.reduce(
@@ -210,6 +255,14 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
               </button>
             ))}
           </div>
+          <button onClick={() => setEditingTargets(v => !v)}
+            className={`px-2.5 py-1.5 text-[11px] font-bold rounded-xl cursor-pointer transition-all ${
+              editingTargets ? 'bg-violet-500/[0.14] text-violet-300' : 'btn-ghost'
+            }`}
+            title="Set your targets">
+            <Target size={12} className="inline mr-1" />
+            Targets
+          </button>
           <button onClick={onLock}
             className="btn-ghost p-2.5 rounded-xl cursor-pointer flex items-center justify-center"
             title="Lock workspace">
@@ -220,17 +273,50 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
 
       <div className="flex-1 overflow-y-auto px-4 lg:px-7 py-6 space-y-7 relative z-10 reveal-stagger custom-scrollbar">
 
+        {editingTargets && (
+          <div className="rounded-2xl p-4 flex flex-wrap items-end gap-5"
+            style={{ background: 'rgba(167,139,250,0.04)', border: '1px solid rgba(167,139,250,0.18)' }}>
+            {[
+              { key: 'completion', label: 'Completion target', suffix: '%', min: 1, max: 100 },
+              { key: 'ships', label: 'Ships per month', suffix: '', min: 1, max: 30 },
+            ].map(f => (
+              <label key={f.key} className="flex flex-col gap-1.5">
+                <span className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                  {f.label}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number" min={f.min} max={f.max}
+                    value={targets[f.key]}
+                    onChange={e => {
+                      const n = Number(e.target.value);
+                      if (Number.isFinite(n)) saveTargets({ ...targets, [f.key]: n });
+                    }}
+                    className="input-premium w-20 px-3 py-1.5 text-[13px] rounded-xl font-bold tabular-nums" />
+                  {f.suffix && <span className="text-[12px] font-bold text-slate-600">{f.suffix}</span>}
+                </div>
+              </label>
+            ))}
+            <p className="text-[10.5px] text-slate-600 font-medium flex-1 min-w-[180px]">
+              Saved as you type. A metric without a target is trivia.
+            </p>
+          </div>
+        )}
+
         {/* Headline numbers */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={TrendingUp} label={`Completion / ${windowDays}d`} accent="#38bdf8"
             value={pct(overall)}
-            sub={hasHistory ? `${totals.completed}/${totals.scheduled}` : 'no data yet'} />
+            sub={hasHistory ? `${totals.completed}/${totals.scheduled}` : 'no data yet'}
+            target={targets.completion}
+            actual={overall === null ? null : Math.round(overall * 100)} />
           <StatCard icon={Flame} label="Current streak" accent="#fb923c"
             value={streaks.current} sub={streaks.current === 1 ? 'clean day' : 'clean days'} />
           <StatCard icon={Trophy} label="Longest streak" accent="#fbbf24"
             value={streaks.longest} sub="days" />
           <StatCard icon={Rocket} label="Shipped this month" accent="#34d399"
-            value={shippedThisMonth} sub={building ? `${building} building` : 'concepts'} />
+            value={shippedThisMonth} sub={building ? `${building} building` : 'concepts'}
+            target={targets.ships} actual={shippedThisMonth} />
         </div>
 
         {/* Daily bars */}
@@ -240,7 +326,7 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
           {hasHistory ? (
             <div className="rounded-2xl p-5"
               style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <HistoryChart history={history} onPickDate={onPickDate} />
+              <HistoryChart history={history} onPickDate={onPickDate} notedDates={notedDates} />
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.04]">
                 <span className="text-[10px] font-semibold text-slate-700">{history[0]?.date}</span>
                 <div className="flex items-center gap-3 text-[9.5px] font-bold uppercase tracking-wider">
@@ -252,6 +338,9 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
                   </span>
                   <span className="flex items-center gap-1.5 text-slate-700">
                     <span className="w-2 h-2 rounded-sm" style={{ background: 'rgba(255,255,255,0.1)' }} /> nothing due
+                  </span>
+                  <span className="flex items-center gap-1.5 text-slate-600">
+                    <NotebookPen size={9} /> logged
                   </span>
                 </div>
                 <span className="text-[10px] font-semibold text-slate-700">today</span>

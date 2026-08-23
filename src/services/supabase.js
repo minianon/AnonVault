@@ -103,6 +103,7 @@ export const addApplication = async (app) => {
     travel: !!app.travel,
     onsite: !!app.onsite,
     remote: !!app.remote,
+    ...(app.retro ? { retro: app.retro } : {}),
     ...(user ? { user_id: user.id } : {})
   };
 
@@ -133,7 +134,8 @@ export const updateApplication = async (id, updates) => {
       ppi: !!updates.ppi,
       travel: !!updates.travel,
       onsite: !!updates.onsite,
-      remote: !!updates.remote
+      remote: !!updates.remote,
+      ...(updates.retro !== undefined ? { retro: updates.retro } : {})
     })
     .eq('id', id)
     .select();
