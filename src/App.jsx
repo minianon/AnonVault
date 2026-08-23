@@ -80,10 +80,13 @@ class ErrorBoundary extends React.Component {
 const APPS_CACHE_KEY = 'anonvault_applications_cache';
 
 function computeBriefing() {
-  const out = { tasksToday: 0, dueThisWeek: 0, concepts: 0 };
+  const out = { tasksToday: 0, dueThisWeek: 0, concepts: 0, doneToday: 0, totalToday: 0 };
 
   try {
-    out.tasksToday = computeTaskStats().pending;
+    const stats = computeTaskStats();
+    out.tasksToday = stats.pending;
+    out.doneToday = stats.completed;
+    out.totalToday = stats.total;
   } catch { /* leave at 0 */ }
 
   try {
@@ -164,14 +167,20 @@ function AccessGranted({ onComplete }) {
   const [phase, setPhase] = useState('welcome'); // 'welcome' -> 'fadeOut'
   // Snapshot once so the tiles cannot change value mid-count.
   const [brief] = useState(computeBriefing);
-  // The shackle springs open partway through the dwell.
-  const [unlatched, setUnlatched] = useState(false);
   // Real state, not decoration: whether this session is talking to Supabase
   // or running off the local cache.
   const [session] = useState(() => ({
     sync: getSupabaseClient() ? 'Cloud sync' : 'Local vault',
     at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   }));
+
+  // Ring reads today's completion rather than sweeping decoratively. With
+  // nothing scheduled there is no ratio to show, so it reads as a full,
+  // muted ring labelled CLEAR instead of an empty one that looks broken.
+  const dialClear = brief.totalToday === 0;
+  const dialRatio = dialClear ? 1 : brief.doneToday / brief.totalToday;
+  const dialDone = !dialClear && brief.doneToday === brief.totalToday;
+  const dialColor = dialClear ? 'rgba(148, 163, 184, 0.35)' : dialDone ? '#34d399' : '#38bdf8';
 
   const summary =
     brief.dueThisWeek > 0
@@ -186,9 +195,6 @@ function AccessGranted({ onComplete }) {
     
     // The ring sweep and the tile counts both land at 1.2s; exit then, so
     // the dwell is exactly as long as the briefing it shows.
-    // Unlatch mid-sweep so the mechanism resolves before the copy does.
-    const tUnlatch = setTimeout(() => setUnlatched(true), 520);
-
     const tFadeOut = setTimeout(() => {
       setPhase('fadeOut');
     }, 1250);
@@ -200,7 +206,6 @@ function AccessGranted({ onComplete }) {
     
     return () => {
       cancelAnimationFrame(raf);
-      clearTimeout(tUnlatch);
       clearTimeout(tFadeOut);
       clearTimeout(tComplete);
     };
@@ -275,8 +280,10 @@ function AccessGranted({ onComplete }) {
             })}
           </svg>
 
-          {/* Unsealing progress — sweeps once over the dwell, so the wait
-              shows its own duration instead of sitting still. */}
+          {/* Progress dial — fills to today's actual completion over the
+              dwell, so the ring is the fourth stat rather than decoration.
+              Driven by a transition off `active` instead of a keyframe,
+              because the end value is data and cannot be baked into CSS. */}
           <svg
             width="140" height="140" viewBox="0 0 140 140"
             style={{
@@ -290,11 +297,12 @@ function AccessGranted({ onComplete }) {
             <circle cx="70" cy="70" r="54" fill="none"
               stroke="rgba(255, 255, 255, 0.05)" strokeWidth="1.6" />
             <circle cx="70" cy="70" r="54" fill="none"
-              stroke="#34d399" strokeWidth="1.6" strokeLinecap="round"
+              stroke={dialColor} strokeWidth="1.6" strokeLinecap="round"
               strokeDasharray="339.29"
+              strokeDashoffset={active ? 339.29 * (1 - dialRatio) : 339.29}
               style={{
-                animation: 'vaultRingProgress 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-                filter: 'drop-shadow(0 0 5px rgba(52, 211, 153, 0.55))',
+                transition: 'stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s ease',
+                filter: dialClear ? 'none' : 'drop-shadow(0 0 5px ' + dialColor + '88)',
               }}
             />
           </svg>
@@ -303,7 +311,7 @@ function AccessGranted({ onComplete }) {
           {phase === 'fadeOut' && (
             <div style={{
               position: 'absolute', inset: 0, borderRadius: '50%',
-              border: '1px solid rgba(52, 211, 153, 0.55)',
+              border: '1px solid ' + dialColor + '8c',
               animation: 'vaultShock 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards',
               pointerEvents: 'none',
             }} />
@@ -312,10 +320,10 @@ function AccessGranted({ onComplete }) {
           {/* Central emblem */}
           <div style={{
             width: 84, height: 84, borderRadius: '50%',
-            background: 'radial-gradient(120% 120% at 32% 22%, rgba(255, 255, 255, 0.10) 0%, rgba(52, 211, 153, 0.11) 38%, rgba(6, 20, 26, 0.94) 100%)',
-            border: '1px solid rgba(52, 211, 153, 0.45)',
+            background: 'radial-gradient(120% 120% at 32% 22%, rgba(255, 255, 255, 0.10) 0%, rgba(56, 189, 248, 0.10) 38%, rgba(6, 14, 26, 0.94) 100%)',
+            border: '1px solid ' + (dialClear ? 'rgba(148, 163, 184, 0.24)' : dialColor + '5c'),
             boxShadow: [
-              '0 0 26px rgba(52, 211, 153, 0.18)',
+              '0 0 26px ' + (dialClear ? 'rgba(148, 163, 184, 0.10)' : dialColor + '2e'),
               'inset 0 1px 0 rgba(255, 255, 255, 0.16)',
               'inset 0 -10px 22px rgba(0, 0, 0, 0.5)',
             ].join(', '),
@@ -326,24 +334,50 @@ function AccessGranted({ onComplete }) {
               : active ? 'scale(1) rotate(0deg)' : 'scale(0.3) rotate(-90deg)',
             transition: 'transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
           }}>
-            {/* The shackle actually unlatches — a closed padlock on the
-                access-granted screen was saying the opposite of what
-                just happened. */}
-            <svg viewBox="0 0 24 24" fill="none" width="32" height="32">
-              <path
-                d="M8 11V7.2a4 4 0 018 0V11"
-                stroke="#5eead4" strokeWidth="1.9" strokeLinecap="round"
-                style={{
-                  transformOrigin: '16px 11px',
-                  transform: unlatched ? 'rotate(-22deg) translate(0.5px, -1px)' : 'none',
-                  transition: 'transform 0.6s cubic-bezier(0.34, 1.45, 0.64, 1)',
-                }}
-              />
-              <rect x="4.6" y="11" width="14.8" height="9.6" rx="2.3"
-                stroke="#34d399" strokeWidth="1.9" />
-              <circle cx="12" cy="14.9" r="1.3" fill="#34d399" />
-              <path d="M12 16.1v2.1" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            {/* The AnonVault mark, not a padlock. The lock spoke about the
+                door; by this screen you are already through it, and
+                everything below is about the day's work. Gradient and
+                filter ids are prefixed so they cannot collide with the
+                sidebar's copy of this mark, which is mounted behind. */}
+            <div style={{
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 3,
+            }}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"
+                width="30" height="30">
+                <defs>
+                  <linearGradient id="agGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#0ea5e9" />
+                    <stop offset="50%" stopColor="#38bdf8" />
+                    <stop offset="100%" stopColor="#7dd3fc" />
+                  </linearGradient>
+                  <filter id="agGlow">
+                    <feGaussianBlur stdDeviation="1.5" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
+                <path d="M38 6C38 9.5 39.5 11 43 11C39.5 11 38 12.5 38 16C38 12.5 36.5 11 33 11C36.5 11 38 9.5 38 6Z" fill="url(#agGrad)" filter="url(#agGlow)" />
+                <rect x="8" y="38" width="10" height="3" rx="1.5" fill="url(#agGrad)" opacity={0.4} />
+                <rect x="15" y="31" width="12" height="3" rx="1.5" fill="url(#agGrad)" opacity={0.6} />
+                <rect x="22" y="24" width="14" height="3" rx="1.5" fill="url(#agGrad)" opacity={0.8} />
+                <rect x="29" y="17" width="16" height="3" rx="1.5" fill="url(#agGrad)" filter="url(#agGlow)" />
+                <path d="M28 11.5C31.5 10.5 34.5 9 37.5 7.5" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" filter="url(#agGlow)" />
+                <path d="M19 28C21 21 24 16 27.5 12" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" filter="url(#agGlow)" />
+                <path d="M19 28C17.5 30.5 15.5 32 14.5 32.5" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" opacity={0.8} />
+                <path d="M22 21C24.5 21.5 27 22.5 28.5 23.5" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" filter="url(#agGlow)" />
+                <circle cx="28" cy="8.5" r="3.5" fill="#ffffff" filter="url(#agGlow)" />
+              </svg>
+
+              {/* What the ring is measuring, spelled out */}
+              <span style={{
+                fontSize: 8.5, fontWeight: 800, letterSpacing: '0.1em',
+                fontFamily: "'JetBrains Mono', monospace",
+                fontVariantNumeric: 'tabular-nums',
+                color: dialClear ? 'rgba(148, 163, 184, 0.5)' : dialColor,
+              }}>
+                {dialClear ? 'CLEAR' : brief.doneToday + '/' + brief.totalToday}
+              </span>
+            </div>
           </div>
         </div>
 
