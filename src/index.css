@@ -870,3 +870,17 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
     animation: none !important;
   }
 }
+
+/* ── Access-granted "unsealing" ────────────────────────────────────
+   The welcome screen used to be a static 1.8s dwell. The ring sweeps
+   once over the dwell so the pause reads as the vault unsealing and
+   telegraphs when it ends, and the shockwave fires as the aperture
+   opens onto the dashboard.                                         */
+@keyframes vaultRingProgress {
+  from { stroke-dashoffset: 414.69; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes vaultShock {
+  from { opacity: 0.5; transform: scale(0.72); }
+  to   { opacity: 0;   transform: scale(2.6); }
+}
