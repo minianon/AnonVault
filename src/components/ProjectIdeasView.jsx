@@ -713,7 +713,7 @@ export default function ProjectIdeasView({
       </div>
 
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto px-7 py-6">
+      <div className="flex-1 overflow-y-auto px-7 py-6 reveal-stagger">
         {processedIdeas.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-20 max-w-sm mx-auto">
             <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-4">

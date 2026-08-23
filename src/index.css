@@ -844,21 +844,21 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
   animation: revealWipeLeft 0.62s cubic-bezier(0.16, 1, 0.3, 1) 0.10s both;
 }
 
-.app-reveal main        { animation: revealRise 0.60s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both; }
-.app-reveal main header { animation: revealRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.26s both; }
+.app-reveal.app-reveal main        { animation: revealRise 0.60s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both; }
+.app-reveal.app-reveal main header { animation: revealRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.26s both; }
 
 /* sections inside the landing view arrive one after another */
-.app-reveal .reveal-stagger > * {
+.app-reveal.app-reveal .reveal-stagger > * {
   animation: revealPop 0.62s cubic-bezier(0.34, 1.28, 0.64, 1) both;
 }
-.app-reveal .reveal-stagger > *:nth-child(1) { animation-delay: 0.30s; }
-.app-reveal .reveal-stagger > *:nth-child(2) { animation-delay: 0.39s; }
-.app-reveal .reveal-stagger > *:nth-child(3) { animation-delay: 0.48s; }
-.app-reveal .reveal-stagger > *:nth-child(4) { animation-delay: 0.57s; }
+.app-reveal.app-reveal .reveal-stagger > *:nth-child(1) { animation-delay: 0.30s; }
+.app-reveal.app-reveal .reveal-stagger > *:nth-child(2) { animation-delay: 0.39s; }
+.app-reveal.app-reveal .reveal-stagger > *:nth-child(3) { animation-delay: 0.48s; }
+.app-reveal.app-reveal .reveal-stagger > *:nth-child(4) { animation-delay: 0.57s; }
 
 /* nested groups continue the cascade rather than restarting it */
-.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(1) { animation-delay: 0.50s; }
-.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(2) { animation-delay: 0.60s; }
+.app-reveal.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(1) { animation-delay: 0.50s; }
+.app-reveal.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(2) { animation-delay: 0.60s; }
 
 @media (prefers-reduced-motion: reduce) {
   .app-reveal,
@@ -919,5 +919,52 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
     animation: none;
     -webkit-text-fill-color: rgba(226, 232, 240, 0.8);
     color: rgba(226, 232, 240, 0.8);
+  }
+}
+
+/* ── Tab switch reveal ─────────────────────────────────────────────
+   Same motion vocabulary as the unlock cascade at roughly 60% of its
+   timings, so it stays snappy when you switch tabs repeatedly.
+
+   The attribute is set only on the tab that is currently active. That
+   matters: the animations use fill-mode `both`, so if it lingered on an
+   inactive panel the held end-state (opacity 1) would override the
+   Tailwind `opacity-0` class and leave that panel visible. Dropping the
+   attribute removes the animation and hands the fade-out back to the
+   existing `transition-all duration-300` classes.
+
+   Removing the attribute on the way out is also what restarts the
+   animation on the way in: the incoming panel gains `animation-name`
+   where it had none, which is a fresh run. No remount, so each view
+   keeps its own state (selected date, filters, scroll).            */
+@keyframes tabRise {
+  from { opacity: 0; transform: translate3d(0, 14px, 0) scale(0.994); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes tabPop {
+  from { opacity: 0; transform: translate3d(0, 22px, 0) scale(0.978); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+[data-tabreveal]        { animation: tabRise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+[data-tabreveal] header { animation: tabRise 0.40s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both; }
+
+[data-tabreveal] .reveal-stagger > * {
+  animation: tabPop 0.46s cubic-bezier(0.34, 1.28, 0.64, 1) both;
+}
+[data-tabreveal] .reveal-stagger > *:nth-child(1) { animation-delay: 0.10s; }
+[data-tabreveal] .reveal-stagger > *:nth-child(2) { animation-delay: 0.17s; }
+[data-tabreveal] .reveal-stagger > *:nth-child(3) { animation-delay: 0.24s; }
+[data-tabreveal] .reveal-stagger > *:nth-child(4) { animation-delay: 0.31s; }
+
+/* nested groups continue the cascade rather than restarting it */
+[data-tabreveal] .reveal-stagger .reveal-stagger > *:nth-child(1) { animation-delay: 0.20s; }
+[data-tabreveal] .reveal-stagger .reveal-stagger > *:nth-child(2) { animation-delay: 0.27s; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-tabreveal],
+  [data-tabreveal] header,
+  [data-tabreveal] .reveal-stagger > * {
+    animation: none !important;
   }
 }
