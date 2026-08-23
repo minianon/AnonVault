@@ -2001,6 +2001,8 @@ function AppInner() {
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
+                  tasksVersion={tasksVersion}
+                  setActiveTab={setActiveTab}
                   initialSelectedAppId={initHackathonId}
                   onClearInitialSelectedApp={() => setInitHackathonId(null)}
                 />
@@ -2038,6 +2040,7 @@ function AppInner() {
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
               }`}>
                 <TasksView
+                  applications={applications}
                   showToast={showToast}
                   onTasksChange={refreshPendingTasks}
                   tasksVersion={tasksVersion}

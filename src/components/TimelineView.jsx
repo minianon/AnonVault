@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Plus, Search, ArrowUpDown, ExternalLink, 
   Edit3, Trash2, Calendar, Link as LinkIcon, AlertTriangle, 
   Clock, ChevronDown, ChevronUp, ChevronRight, ListCollapse,
-  Lock, X, Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, Menu, History
+  Lock, X, Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, Menu, History,
+  ListChecks
 } from 'lucide-react';
 import { formatDate, getPriorityStyles, getStatusStyles, sortApplicationsByDeadline, groupApplicationsByMonth } from '../utils/helpers';
+import { getHackathonProgress } from '../services/tasks';
 
 /* ─── Premium Custom Dropdown ─────────────────────────── */
 function CustomDropdown({ value, onChange, options, icon, placeholder }) {
@@ -78,7 +80,9 @@ export default function TimelineView({
   showToast,
   onMenuToggle,
   initialSelectedAppId,
-  onClearInitialSelectedApp
+  onClearInitialSelectedApp,
+  tasksVersion,
+  setActiveTab
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -105,6 +109,13 @@ export default function TimelineView({
   const [selectedAppDetails, setSelectedAppDetails] = useState(null);
   const [expandedMonths, setExpandedMonths] = useState({});
   const [showPast, setShowPast] = useState(false);
+
+  // Read from the local task cache, recomputed whenever tasks change anywhere.
+  const hackathonProgress = useMemo(
+    () => getHackathonProgress(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasksVersion]
+  );
 
   useEffect(() => {
     if (initialSelectedAppId && applications) {
@@ -413,14 +424,16 @@ export default function TimelineView({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                   {starredApps.map(app => (
-                    <HackathonCard 
-                      key={app.id} 
-                      app={app} 
-                      isNearest={app.id === nearestAppId} 
-                      onEdit={handleOpenEdit} 
-                      onDelete={handleDeleteClick} 
-                      onViewDetails={setSelectedAppDetails} 
+                    <HackathonCard
+                      key={app.id}
+                      app={app}
+                      isNearest={app.id === nearestAppId}
+                      onEdit={handleOpenEdit}
+                      onDelete={handleDeleteClick}
+                      onViewDetails={setSelectedAppDetails}
                       onUpdate={onUpdate}
+                      progress={hackathonProgress[app.id]}
+                      onOpenChecklist={() => setActiveTab && setActiveTab('tasks')}
                     />
                   ))}
                 </div>
@@ -503,7 +516,7 @@ export default function TimelineView({
                                 {monthApps.map(app => (
                                   <div key={app.id} className="relative">
                                     <TimelineNodeDot app={app} />
-                                    <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} />
+                                    <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} progress={hackathonProgress[app.id]} onOpenChecklist={() => setActiveTab && setActiveTab('tasks')} />
                                   </div>
                                 ))}
                               </div>
@@ -518,7 +531,7 @@ export default function TimelineView({
                     {sortedApps.map(app => (
                       <div key={app.id} className="relative">
                         <TimelineNodeDot app={app} />
-                        <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} />
+                        <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} progress={hackathonProgress[app.id]} onOpenChecklist={() => setActiveTab && setActiveTab('tasks')} />
                       </div>
                     ))}
                   </div>
@@ -835,7 +848,7 @@ function InfoRow({ icon, label, children }) {
 }
 
 /* ── HACKATHON CARD ── */
-function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpdate }) {
+function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpdate, progress, onOpenChecklist }) {
   const priority = getPriorityStyles(app.priority);
   const status = getStatusStyles(app.status);
 
@@ -926,6 +939,32 @@ function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpda
                 </span>
               )}
             </div>
+
+            {/* Checklist this hackathon owns. Only shown once steps exist, so
+                cards for untouched entries are unchanged. */}
+            {progress && progress.total > 0 && (
+              <button
+                onClick={e => { e.stopPropagation(); onOpenChecklist && onOpenChecklist(); }}
+                title="Open in the Daily Checklist"
+                className="mt-3 w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl cursor-pointer
+                  bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.05] transition-all">
+                <ListChecks size={11} className="text-sky-400/80 shrink-0" />
+                <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
+                  <div style={{
+                    width: `${Math.round((progress.done / progress.total) * 100)}%`,
+                    height: '100%', borderRadius: 99,
+                    background: progress.done === progress.total
+                      ? 'linear-gradient(90deg, #10b981, #34d399)'
+                      : 'linear-gradient(90deg, #0ea5e9, #38bdf8)',
+                  }} />
+                </div>
+                <span className={`text-[10px] font-bold tabular-nums shrink-0 ${
+                  progress.done === progress.total ? 'text-emerald-400' : 'text-slate-500'
+                }`}>
+                  {progress.done}/{progress.total}
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Actions — hidden by default, visible on hover */}
