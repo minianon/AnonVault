@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS public.applications (
     travel BOOLEAN DEFAULT false,
     onsite BOOLEAN DEFAULT false,
     remote BOOLEAN DEFAULT false,
+    -- Retrospective, surfaced once the entry resolves.
+    retro TEXT DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -115,6 +117,15 @@ CREATE TABLE IF NOT EXISTS public.quotes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- --- Daily Log (one line per day, read back in Review) ---
+CREATE TABLE IF NOT EXISTS public.daily_notes (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    date TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT daily_notes_date_key UNIQUE (date)
+);
+
 -- --------------------------------------------------------------------
 -- 3. ROW LEVEL SECURITY (RLS) POLICIES
 -- --------------------------------------------------------------------
@@ -133,6 +144,7 @@ ALTER TABLE public.task_completions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subtask_completions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_ideas DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quotes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_notes DISABLE ROW LEVEL SECURITY;
 
 -- ====================================================================
 -- OPTION B: Alternatively, Enable RLS & Configure Public Rules

@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS public.tasks (
     date TEXT,
     subtasks JSONB DEFAULT '[]'::jsonb,
     completed BOOLEAN DEFAULT false,
+    -- Optional owner: lets a hackathon carry its own checklist.
+    hackathon_id UUID REFERENCES public.applications(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -95,6 +97,9 @@ CREATE TABLE IF NOT EXISTS public.project_ideas (
     images JSONB DEFAULT '[]'::jsonb,
     links JSONB DEFAULT '[]'::jsonb,
     tags TEXT[] DEFAULT '{}',
+    -- backlog | building | shipped | parked
+    status TEXT DEFAULT 'backlog',
+    promoted_from UUID REFERENCES public.ideas(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -180,3 +185,18 @@ USING (bucket_id = 'idea-images');
 CREATE POLICY "Public Delete Access"
 ON storage.objects FOR DELETE
 USING (bucket_id = 'idea-images');
+
+-- --- Daily Log (one line per day, read back in Review) ---
+CREATE TABLE IF NOT EXISTS public.daily_notes (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    date TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT daily_notes_date_key UNIQUE (date)
+);
+
+ALTER TABLE public.daily_notes DISABLE ROW LEVEL SECURITY;
+
+-- Hackathon retrospective, surfaced once an entry resolves.
+ALTER TABLE public.applications
+  ADD COLUMN IF NOT EXISTS retro TEXT DEFAULT '';
