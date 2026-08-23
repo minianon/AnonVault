@@ -1446,7 +1446,11 @@ function AppInner() {
   }, []);
 
   const stats = {
-    totalApplications: (applications || []).length,
+    // Upcoming only — the badge is an "needs attention" count, like
+    // pendingTasks below, so events whose deadline has passed do not belong.
+    upcomingApplications: (applications || []).filter(
+      app => app && !(app.deadline && new Date(app.deadline) < new Date())
+    ).length,
     highPriorityCount: (applications || []).filter(app => app && app.priority === 'high' && app.status !== 'rejected').length,
     totalIdeas: (ideas || []).length,
     pendingTasks: taskStats.pending,
