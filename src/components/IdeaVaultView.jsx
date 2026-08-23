@@ -724,19 +724,54 @@ export default function IdeaVaultView({
         ) : processedIdeas.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-20 max-w-sm mx-auto">
             <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-4">
-              <Lightbulb size={24} className="text-slate-600 animate-pulse" />
+              {showArchived
+                ? <Archive size={24} className="text-slate-600" />
+                : <Lightbulb size={24} className="text-slate-600 animate-pulse" />}
             </div>
-            <h3 className="text-sm font-semibold text-slate-300">No ideas yet</h3>
+            {/* An empty archive is not an empty vault, and must not offer to
+                create something into a bucket you cannot create into. */}
+            <h3 className="text-sm font-semibold text-slate-300">
+              {showArchived ? 'Nothing archived' : 'No ideas yet'}
+            </h3>
             <p className="text-[12px] text-slate-600 mt-1.5 leading-relaxed">
-              {searchTerm || selectedTag ? 'Try adjusting your search or tags.' : 'Capture your first creative thought.'}
+              {showArchived
+                ? 'Your ideas are all still active. Archive one to tuck it away without deleting it.'
+                : searchTerm || selectedTag ? 'Try adjusting your search or tags.' : 'Capture your first creative thought.'}
             </p>
-            {!searchTerm && !selectedTag && (
+            {showArchived ? (
+              <button onClick={() => setShowArchived(false)}
+                className="btn-primary mt-5 px-5 py-2 text-[13px] font-semibold rounded-xl cursor-pointer">
+                Back to active ideas
+              </button>
+            ) : !searchTerm && !selectedTag && (
               <button onClick={handleOpenAdd} className="btn-primary mt-5 px-5 py-2 text-[13px] font-semibold rounded-xl cursor-pointer">
                 Capture Idea
               </button>
             )}
           </div>
         ) : (
+          <>
+        {/* Being inside the archive has to be unmistakable — otherwise an
+            empty archive reads as an empty section. */}
+        {showArchived && (
+          <div className="flex items-center gap-2.5 mb-5 px-3.5 py-2.5 rounded-2xl"
+            style={{ background: 'rgba(148,163,184,0.06)', border: '1px solid rgba(148,163,184,0.2)' }}>
+            <Archive size={13} className="text-slate-400 shrink-0" />
+            <p className="text-[12px] font-semibold text-slate-300 flex-1 min-w-0">
+              Viewing archive
+              <span className="text-slate-500 font-medium">
+                {' '}&middot; {archivedIds.length} idea archived
+              </span>
+            </p>
+            <button
+              onClick={() => setShowArchived(false)}
+              className="shrink-0 px-3 py-1 text-[11px] font-bold rounded-xl cursor-pointer
+                text-sky-300 bg-sky-500/[0.12] border border-sky-500/25 hover:bg-sky-500/[0.2] transition-all">
+              Back to active
+            </button>
+          </div>
+        )}
+
           <div>
             {/* Pinned Section */}
             {pinnedIdeas.length > 0 && (
@@ -822,6 +857,7 @@ export default function IdeaVaultView({
               </>
             )}
           </div>
+          </>
         )}
       </div>
 
