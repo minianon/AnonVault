@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { useArchive } from '../utils/useArchive';
+import { useListNav } from '../utils/useListNav';
+import BulkBar from './BulkBar';
 import { 
   Plus, Search, Tag, Trash2, Edit3, X, Rocket, Menu, Lock, 
   Globe, ExternalLink, Info, GripVertical, ChevronLeft, ChevronRight, 
   Maximize2, Calendar, Image as ImageIcon, FileImage, AlertTriangle, Hash,
-  ChevronDown, ChevronUp, Star, Archive, ArchiveRestore
+  ChevronDown, ChevronUp, Star, Archive, ArchiveRestore, CheckSquare, Square, Trash2 as TrashBulk
 } from 'lucide-react';
 
 /* ─── tiny helpers ─────────────────────────────────────── */
@@ -696,6 +698,52 @@ export default function ProjectIdeasView({
   useShortcutHooks({ onNew: handleOpenAdd, searchRef, rootRef });
 
   const processedIdeas = getProcessedIdeas();
+
+  // Display order differs by view: the board reads column by column, the grid
+  // reads pinned then the rest. j/k has to follow whichever is on screen.
+  const navIds = viewMode === 'board'
+    ? STATUS_ORDER.flatMap(key =>
+        processedIdeas.filter(i => (i.status || 'backlog') === key).map(i => i.id))
+    : [
+        ...processedIdeas.filter(i => pinnedIds.includes(i.id)),
+        ...processedIdeas.filter(i => !pinnedIds.includes(i.id)),
+      ].map(i => i.id);
+
+  const nav = useListNav({
+    ids: navIds,
+    onOpen: id => {
+      const found = processedIdeas.find(i => i.id === id);
+      if (found) setSelectedIdea(found);
+    },
+    rootRef,
+  });
+
+  const bulkArchive = () => {
+    const ids = nav.selectedIds;
+    ids.forEach(id => { if (showArchived === isArchived(id)) toggleArchived(id); });
+    nav.clearSelection();
+    showToast?.('success', showArchived ? 'Restored' : 'Archived',
+      `${ids.length} concept${ids.length === 1 ? '' : 's'} ${showArchived ? 'restored' : 'archived'}.`);
+  };
+
+  const bulkStage = async next => {
+    const ids = nav.selectedIds;
+    nav.clearSelection();
+    for (const id of ids) {
+      const item = processedIdeas.find(i => i.id === id);
+      if (item && (item.status || 'backlog') !== next) {
+        await onUpdate?.(item.id, { ...item, status: next });
+      }
+    }
+    showToast?.('success', PROJECT_STATUS[next].label,
+      `${ids.length} concept${ids.length === 1 ? '' : 's'} moved to ${PROJECT_STATUS[next].label}.`);
+  };
+
+  const bulkDelete = async () => {
+    const ids = nav.selectedIds;
+    nav.clearSelection();
+    for (const id of ids) await onDelete?.(id);
+  };
   const pinnedIdeas = processedIdeas.filter(idea => pinnedIds.includes(idea.id));
   const regularIdeas = processedIdeas.filter(idea => !pinnedIds.includes(idea.id));
 
@@ -898,6 +946,7 @@ export default function ProjectIdeasView({
                   <div className="space-y-3">
                     {column.map(idea => (
                       <div key={idea.id}
+                        data-nav-id={idea.id}
                         draggable
                         onDragStart={() => setBoardDragId(idea.id)}
                         onDragEnd={() => { setBoardDragId(null); setDragOverCol(null); }}
@@ -916,6 +965,9 @@ export default function ProjectIdeasView({
                           onAdvanceStatus={advanceStatus}
                           onToggleArchive={toggleArchived}
                           archived={isArchived(idea.id)}
+                          selected={nav.isSelected(idea.id)}
+                          onToggleSelect={nav.toggleSelect}
+                          focused={nav.cursorId === idea.id}
                         />
                       </div>
                     ))}
@@ -941,7 +993,7 @@ export default function ProjectIdeasView({
                 </div>
                 <div className="columns-1 md:columns-2 xl:columns-3 gap-5">
                   {pinnedIdeas.map(idea => (
-                    <div key={idea.id} className="break-inside-avoid mb-5">
+                    <div key={idea.id} data-nav-id={idea.id} className="break-inside-avoid mb-5">
                       <IdeaCard
                         idea={idea}
                         sortBy={sortBy}
@@ -956,6 +1008,9 @@ export default function ProjectIdeasView({
                         onAdvanceStatus={advanceStatus}
                         onToggleArchive={toggleArchived}
                         archived={isArchived(idea.id)}
+                        selected={nav.isSelected(idea.id)}
+                        onToggleSelect={nav.toggleSelect}
+                        focused={nav.cursorId === idea.id}
                       />
                     </div>
                   ))}
@@ -978,6 +1033,7 @@ export default function ProjectIdeasView({
                     <div
                       key={idea.id}
                       data-flip-id={idea.id}
+                      data-nav-id={idea.id}
                       draggable={sortBy === 'custom' && hoveredDragId === idea.id && !searchTerm && !selectedTag}
                       onDragStart={e => handleDragStart(e, idea.id)}
                       onDragEnd={handleDragEnd}
@@ -1004,6 +1060,9 @@ export default function ProjectIdeasView({
                         onAdvanceStatus={advanceStatus}
                         onToggleArchive={toggleArchived}
                         archived={isArchived(idea.id)}
+                        selected={nav.isSelected(idea.id)}
+                        onToggleSelect={nav.toggleSelect}
+                        focused={nav.cursorId === idea.id}
                       />
                     </div>
                   ))}
@@ -1013,6 +1072,18 @@ export default function ProjectIdeasView({
           </div>
         )}
       </div>
+
+      <BulkBar
+        count={nav.selectedIds.length}
+        noun="concept"
+        onClear={nav.clearSelection}
+        actions={[
+          { label: 'Building', icon: Rocket, onClick: () => bulkStage('building') },
+          { label: 'Shipped', icon: CheckSquare, onClick: () => bulkStage('shipped') },
+          { label: showArchived ? 'Restore' : 'Archive', icon: showArchived ? ArchiveRestore : Archive, onClick: bulkArchive },
+          { label: 'Delete', icon: TrashBulk, danger: true, onClick: bulkDelete },
+        ]}
+      />
 
       {/* ═══ ADD / EDIT MODAL ═══ */}
       {isFormOpen && (
@@ -1369,7 +1440,7 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
   );
 }
 
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onAdvanceStatus, onToggleArchive, archived }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onAdvanceStatus, onToggleArchive, archived, selected, onToggleSelect, focused }) {
   const status = PROJECT_STATUS[idea.status || 'backlog'] || PROJECT_STATUS.backlog;
   const images = idea.images || [];
   const links  = idea.links || [];
@@ -1380,6 +1451,7 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
   return (
     <article
       onClick={() => onViewDetails && onViewDetails(idea)}
+      style={focused ? { outline: '1px solid rgba(56,189,248,0.55)', outlineOffset: 2 } : undefined}
       className={`glass-card rounded-2xl !overflow-visible cursor-pointer select-none group tactile-item ${
         isPinned ? 'premium-starred-card' : ''
       }`}
@@ -1451,6 +1523,16 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
               <Edit3 size={11} />
             </button>
             
+            <button onClick={() => onToggleSelect && onToggleSelect(idea.id)}
+              className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center border border-transparent ${
+                selected
+                  ? 'text-sky-300 bg-sky-500/[0.14] border-sky-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] hover:border-white/[0.12]'
+              }`}
+              title={selected ? 'Deselect (x)' : 'Select for bulk actions (x)'}>
+              {selected ? <CheckSquare size={11} /> : <Square size={11} />}
+            </button>
+
             <button onClick={() => onToggleArchive && onToggleArchive(idea.id)}
               className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-white/[0.06] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-white/[0.12]"
               title={archived ? 'Restore from archive' : 'Archive this concept'}>

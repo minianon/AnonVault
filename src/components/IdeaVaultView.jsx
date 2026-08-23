@@ -4,10 +4,12 @@ import {
   AlertTriangle, FileImage, Link as LinkIcon,
   Lightbulb, Lock, Hash, ExternalLink, Image as ImageIcon,
   Globe, ChevronDown, ChevronUp, GripVertical, Info, Maximize2,
-  ChevronLeft, ChevronRight, Menu, Star, Rocket, Archive, ArchiveRestore
+  ChevronLeft, ChevronRight, Menu, Star, Rocket, Archive, ArchiveRestore, CheckSquare, Square, Trash2 as TrashBulk
 } from 'lucide-react';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { useArchive } from '../utils/useArchive';
+import { useListNav } from '../utils/useListNav';
+import BulkBar from './BulkBar';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
 
@@ -590,8 +592,37 @@ export default function IdeaVaultView({
   };
 
   const processedIdeas = getProcessedIdeas();
-  const pinnedIdeas = processedIdeas.filter(idea => pinnedIds.includes(idea.id));
-  const regularIdeas = processedIdeas.filter(idea => !pinnedIds.includes(idea.id));
+  const pinnedIdeasList = processedIdeas.filter(i => pinnedIds.includes(i.id));
+  const regularIdeasList = processedIdeas.filter(i => !pinnedIds.includes(i.id));
+  // Display order, not data order — j/k must follow what is on screen.
+  const navIds = [...pinnedIdeasList, ...regularIdeasList].map(i => i.id);
+
+  const nav = useListNav({
+    ids: navIds,
+    onOpen: id => {
+      const found = processedIdeas.find(i => i.id === id);
+      if (found) setSelectedIdea(found);
+    },
+    rootRef,
+  });
+
+  const bulkArchive = () => {
+    const ids = nav.selectedIds;
+    ids.forEach(id => { if (showArchived === isArchived(id)) toggleArchived(id); });
+    nav.clearSelection();
+    showToast?.('success', showArchived ? 'Restored' : 'Archived',
+      `${ids.length} idea${ids.length === 1 ? '' : 's'} ${showArchived ? 'restored' : 'archived'}.`);
+  };
+
+  const bulkDelete = async () => {
+    const ids = nav.selectedIds;
+    nav.clearSelection();
+    // Sequential: each delete updates the same list state, and the handlers
+    // filter from the previous value.
+    for (const id of ids) await onDelete?.(id);
+  };
+  const pinnedIdeas = pinnedIdeasList;
+  const regularIdeas = regularIdeasList;
 
   /* FLIP layout transition animation */
   const prevRectsRef = useRef({});
@@ -794,7 +825,7 @@ export default function IdeaVaultView({
                 </div>
                 <div className="columns-1 md:columns-2 xl:columns-3 gap-5">
                   {pinnedIdeas.map(idea => (
-                    <div key={idea.id} className="break-inside-avoid mb-5">
+                    <div key={idea.id} data-nav-id={idea.id} className="break-inside-avoid mb-5">
                       <IdeaCard
                         idea={idea}
                         sortBy={sortBy}
@@ -811,6 +842,9 @@ export default function IdeaVaultView({
                         onOpenConcept={onOpenConcept}
                         onToggleArchive={toggleArchived}
                         archived={isArchived(idea.id)}
+                        selected={nav.isSelected(idea.id)}
+                        onToggleSelect={nav.toggleSelect}
+                        focused={nav.cursorId === idea.id}
                       />
                     </div>
                   ))}
@@ -833,6 +867,7 @@ export default function IdeaVaultView({
                     <div
                       key={idea.id}
                       data-flip-id={idea.id}
+                      data-nav-id={idea.id}
                       draggable={sortBy === 'custom' && hoveredDragId === idea.id && !searchTerm && !selectedTag}
                       onDragStart={e => handleDragStart(e, idea.id)}
                       onDragEnd={handleDragEnd}
@@ -861,6 +896,9 @@ export default function IdeaVaultView({
                         onOpenConcept={onOpenConcept}
                         onToggleArchive={toggleArchived}
                         archived={isArchived(idea.id)}
+                        selected={nav.isSelected(idea.id)}
+                        onToggleSelect={nav.toggleSelect}
+                        focused={nav.cursorId === idea.id}
                       />
                     </div>
                   ))}
@@ -871,6 +909,16 @@ export default function IdeaVaultView({
           </>
         )}
       </div>
+
+      <BulkBar
+        count={nav.selectedIds.length}
+        noun="idea"
+        onClear={nav.clearSelection}
+        actions={[
+          { label: showArchived ? 'Restore' : 'Archive', icon: showArchived ? ArchiveRestore : Archive, onClick: bulkArchive },
+          { label: 'Delete', icon: TrashBulk, danger: true, onClick: bulkDelete },
+        ]}
+      />
 
       {/* ═══ ADD / EDIT MODAL ═══ */}
       {isFormOpen && (
@@ -1257,7 +1305,7 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
 }
 
 /* ─── Idea Card ───────────────────────────────────────── */
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote, promotedTo, onOpenConcept, onToggleArchive, archived }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote, promotedTo, onOpenConcept, onToggleArchive, archived, selected, onToggleSelect, focused }) {
   // Without this the funnel leaks: a promoted idea looked identical to an
   // unpromoted one, so the same idea would get promoted twice.
   const isPromoted = !!promotedTo;
@@ -1272,6 +1320,7 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
   return (
     <article
       onClick={() => onViewDetails && onViewDetails(idea)}
+      style={focused ? { outline: '1px solid rgba(56,189,248,0.55)', outlineOffset: 2 } : undefined}
       className={`glass-card rounded-2xl !overflow-visible cursor-pointer select-none group tactile-item ${
         isPinned ? 'premium-starred-card' : ''
       }`}
@@ -1358,6 +1407,16 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
               <Edit3 size={11} />
             </button>
             
+            <button onClick={() => onToggleSelect && onToggleSelect(idea.id)}
+              className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center border border-transparent ${
+                selected
+                  ? 'text-sky-300 bg-sky-500/[0.14] border-sky-500/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] hover:border-white/[0.12]'
+              }`}
+              title={selected ? 'Deselect (x)' : 'Select for bulk actions (x)'}>
+              {selected ? <CheckSquare size={11} /> : <Square size={11} />}
+            </button>
+
             <button onClick={() => onToggleArchive && onToggleArchive(idea.id)}
               className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-white/[0.06] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-white/[0.12]"
               title={archived ? 'Restore from archive' : 'Archive this idea'}>
