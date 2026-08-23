@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Edit3, X, ChevronDown,
   Check, Sun, Moon, RotateCcw,
   ChevronLeft, ChevronRight as ChevronRightIcon, Repeat2,
-  ListChecks, Sparkles, Minus, ArrowDown, EyeOff, Lock, Menu, CheckCheck
+  ListChecks, Sparkles, Minus, ArrowDown, EyeOff, Lock, Menu, CheckCheck, CalendarRange
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, addTask, updateTask, deleteTask,
@@ -106,7 +106,7 @@ function Checkbox({ checked, onChange, size = 'md', disabled = false }) {
 }
 
 /* ── Task card with linktree thread ─────────────────────── */
-function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, index = 0 }) {
+function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, index = 0, hackathonName }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasSubtasks  = task.subtasks && task.subtasks.length > 0;
   const completedSubs = hasSubtasks ? task.subtasks.filter(s => s.completed).length : 0;
@@ -173,6 +173,15 @@ function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, ind
 
             {/* Badges + Action buttons — always show badges, actions appear on hover */}
             <div className="flex items-center gap-1 shrink-0 mt-0.5">
+              {/* Which hackathon this step belongs to */}
+              {hackathonName && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded-full
+                  bg-emerald-500/[0.09] text-emerald-300/90 border border-emerald-500/25 max-w-[150px]">
+                  <CalendarRange size={8} className="shrink-0" />
+                  <span className="truncate">{hackathonName}</span>
+                </span>
+              )}
+
               {/* Priority badge */}
               {task.priority !== 'low' && (
                 <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
@@ -269,7 +278,7 @@ function PrioritySelector({ value, onChange }) {
 }
 
 /* ── Task Form Modal ─────────────────────────────────────── */
-function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, showToast }) {
+function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, showToast, applications }) {
   const [title,         setTitle]         = useState('');
   const [priority,      setPriority]      = useState('medium');
   const [isRecurring,   setIsRecurring]   = useState(false);
@@ -277,6 +286,7 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
   const [recurrenceDays, setRecurrenceDays] = useState([]);
   const [taskDate,      setTaskDate]      = useState(defaultDate || todayStr());
   const [subtasks,      setSubtasks]      = useState([]);
+  const [hackathonId,   setHackathonId]   = useState('');
   const [stInput,       setStInput]       = useState('');
   const stInputRef = useRef(null);
 
@@ -290,10 +300,12 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
       setRecurrenceDays(editingTask.recurrence_days || []);
       setTaskDate(editingTask.date || defaultDate || todayStr());
       setSubtasks(editingTask.subtasks?.map(s => ({ id: s.id, title: s.title })) || []);
+      setHackathonId(editingTask.hackathon_id || '');
     } else {
       setTitle(''); setPriority('medium'); setIsRecurring(false);
       setRecurrence('daily'); setRecurrenceDays([]);
       setTaskDate(defaultDate || todayStr()); setSubtasks([]);
+      setHackathonId('');
     }
     setStInput('');
   }, [isOpen, editingTask, defaultDate]);
@@ -316,7 +328,8 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
       showToast?.('error', 'Select Days', 'Choose at least one day for weekly recurrence.'); return;
     }
     onSave({ title, priority, is_recurring: isRecurring, recurrence, recurrence_days: recurrenceDays,
-             date: isRecurring ? null : taskDate, subtasks: subtasks.filter(s => s.title.trim()) });
+             date: isRecurring ? null : taskDate, subtasks: subtasks.filter(s => s.title.trim()),
+             hackathon_id: hackathonId || null });
   };
 
   if (!isOpen) return null;
@@ -410,6 +423,26 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
               </label>
               <input type="date" value={taskDate} onChange={e => setTaskDate(e.target.value)}
                 className="input-premium w-full px-4 py-2.5 text-[13px] rounded-xl font-semibold placeholder:text-slate-700 cursor-pointer" />
+            </div>
+          )}
+
+          {/* Hackathon link — turns a Timeline entry into a checklist owner
+              (register, form team, record demo, submit) instead of the two
+              sections running in parallel with no connection. */}
+          {(applications || []).length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Part of a hackathon <span className="text-slate-700 font-semibold normal-case tracking-normal">(optional)</span>
+              </label>
+              <select
+                value={hackathonId}
+                onChange={e => setHackathonId(e.target.value)}
+                className="input-premium w-full px-4 py-2.5 text-[13px] rounded-xl font-semibold cursor-pointer">
+                <option value="">Not linked</option>
+                {(applications || [])
+                  .filter(a => a && a.name)
+                  .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
             </div>
           )}
 
@@ -512,7 +545,7 @@ function SectionLabel({ label, count, color = 'text-slate-500', accentColor }) {
 /* ══════════════════════════════════════════════════════════
    MAIN VIEW
 ══════════════════════════════════════════════════════════ */
-export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, tasksVersion, onLock, onMenuToggle }) {
+export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, tasksVersion, onLock, onMenuToggle, applications }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [tasks,        setTasks]        = useState([]);
   const [isFormOpen,   setIsFormOpen]   = useState(false);
@@ -704,6 +737,11 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
   const sortByPriority = arr =>
     [...arr].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2));
 
+  const hackathonNames = (applications || []).reduce((acc, a) => {
+    if (a && a.id) acc[a.id] = a.name;
+    return acc;
+  }, {});
+
   const activeTasks    = tasks.filter(t => !cancelledMap[t.id]?.[selectedDate]);
   const cancelledToday = tasks.filter(t => !!cancelledMap[t.id]?.[selectedDate]);
 
@@ -875,6 +913,7 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
                       onEdit={t => { setEditingTask(t); setIsFormOpen(true); }}
                       onDelete={setDeleteTarget}
                       onCancel={handleCancel}
+                      hackathonName={hackathonNames[task.hackathon_id]}
                     />
                   </div>
                 ))}
@@ -897,6 +936,7 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
                       onEdit={t => { setEditingTask(t); setIsFormOpen(true); }}
                       onDelete={setDeleteTarget}
                       onCancel={handleCancel}
+                      hackathonName={hackathonNames[task.hackathon_id]}
                     />
                   </div>
                 ))}
@@ -934,6 +974,7 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
         editingTask={editingTask}
         defaultDate={selectedDate}
         showToast={showToast}
+        applications={applications}
       />
       <DeleteModal
         task={deleteTarget}

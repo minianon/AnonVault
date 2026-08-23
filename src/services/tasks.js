@@ -557,3 +557,30 @@ export function getDayCount() {
   const dayMs = 86400000;
   return Math.max(1, Math.round((Date.now() - first) / dayMs) + 1);
 }
+
+/** Raw local tasks, unfiltered by date — for views that need all of them. */
+export function getAllTasksSync() {
+  return loadLocalTasks();
+}
+
+/**
+ * Checklist progress per hackathon, keyed by hackathon id.
+ * Recurring steps are judged on today; one-off steps on their own flag.
+ */
+export function getHackathonProgress() {
+  const tasks = loadLocalTasks();
+  const completions = loadCompletions();
+  const today = dateStrOffset(0);
+  const map = {};
+
+  for (const t of tasks) {
+    if (!t.hackathon_id) continue;
+    if (!map[t.hackathon_id]) map[t.hackathon_id] = { total: 0, done: 0, steps: [] };
+    const done = t.is_recurring ? !!(completions[t.id]?.[today]) : !!t.completed;
+    const bucket = map[t.hackathon_id];
+    bucket.total++;
+    if (done) bucket.done++;
+    bucket.steps.push({ id: t.id, title: t.title, completed: done, priority: t.priority });
+  }
+  return map;
+}
