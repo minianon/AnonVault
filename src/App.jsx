@@ -1734,8 +1734,11 @@ function AppInner() {
     return acc;
   }, {});
 
+  // Returns whether the concept was actually created. The vault uses that to
+  // decide whether to clear the idea out of its active list — a failed
+  // promotion must not make the idea disappear.
   const handlePromoteToProject = async idea => {
-    if (!idea) return;
+    if (!idea) return false;
     try {
       await handleAddProjectIdea({
         title: idea.title,
@@ -1747,10 +1750,12 @@ function AppInner() {
         promoted_from: idea.id,
       });
       setActiveTab('project-ideas');
-      showToast('success', 'Promoted', `"${idea.title}" is now a project concept.`);
+      showToast('success', 'Promoted', `"${idea.title}" moved to Project Ideas.`);
+      return true;
     } catch (err) {
       console.error('Failed to promote idea:', err);
       showToast('error', 'Promote Failed', 'Could not create the concept.');
+      return false;
     }
   };
 
