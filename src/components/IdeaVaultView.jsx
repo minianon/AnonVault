@@ -232,7 +232,7 @@ function CustomDropdown({ value, onChange, options, icon, placeholder }) {
 ═══════════════════════════════════════════════════════ */
 export default function IdeaVaultView({
   ideas, onAdd, onUpdate, onDelete, loading, theme, onLock, showToast, onMenuToggle, initialSelectedIdeaId, onClearInitialSelectedIdea,
-  onPromoteToProject
+  onPromoteToProject, promotedMap = {}, onOpenConcept
 }) {
   const [searchTerm, setSearchTerm]     = useState('');
   const [selectedTag, setSelectedTag]   = useState('');
@@ -736,6 +736,8 @@ export default function IdeaVaultView({
                         isPinned={true}
                         onTogglePin={togglePin}
                         onPromote={onPromoteToProject}
+                        promotedTo={promotedMap[idea.id]}
+                        onOpenConcept={onOpenConcept}
                       />
                     </div>
                   ))}
@@ -782,6 +784,8 @@ export default function IdeaVaultView({
                         isPinned={false}
                         onTogglePin={togglePin}
                         onPromote={onPromoteToProject}
+                        promotedTo={promotedMap[idea.id]}
+                        onOpenConcept={onOpenConcept}
                       />
                     </div>
                   ))}
@@ -1177,7 +1181,10 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
 }
 
 /* ─── Idea Card ───────────────────────────────────────── */
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote, promotedTo, onOpenConcept }) {
+  // Without this the funnel leaks: a promoted idea looked identical to an
+  // unpromoted one, so the same idea would get promoted twice.
+  const isPromoted = !!promotedTo;
   const images = idea.images?.length > 0
     ? idea.images
     : idea.image_url ? [{ url: idea.image_url, caption: '' }] : [];
@@ -1256,9 +1263,16 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
             
             <div className="w-[1px] h-3 bg-white/[0.08] self-center" />
 
-            <button onClick={() => onPromote && onPromote(idea)}
-              className="p-1.5 text-slate-400 hover:text-sky-400 rounded-lg hover:bg-sky-500/[0.08] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-sky-500/20"
-              title="Promote to a project concept">
+            <button
+              onClick={() => isPromoted
+                ? (onOpenConcept && onOpenConcept(promotedTo))
+                : (onPromote && onPromote(idea))}
+              className={`p-1.5 rounded-lg transition-all cursor-pointer flex items-center justify-center border border-transparent ${
+                isPromoted
+                  ? 'text-sky-400 hover:bg-sky-500/[0.12] hover:border-sky-500/25'
+                  : 'text-slate-400 hover:text-sky-400 hover:bg-sky-500/[0.08] hover:border-sky-500/20'
+              }`}
+              title={isPromoted ? 'Open the concept this became' : 'Promote to a project concept'}>
               <Rocket size={11} />
             </button>
 
@@ -1296,12 +1310,22 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
           </div>
         )}
 
-        {/* tags */}
-        {idea.tags && idea.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-2.5 border-t border-white/[0.06]"
+        {/* promoted marker + tags */}
+        {(isPromoted || (idea.tags && idea.tags.length > 0)) && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-white/[0.06]"
                onClick={e => e.stopPropagation()}
                onDragStart={e => e.stopPropagation()}>
-            {idea.tags.map(tag => (
+            {isPromoted && (
+              <button
+                onClick={() => onOpenConcept && onOpenConcept(promotedTo)}
+                title="Open the concept this became"
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded-full cursor-pointer
+                  bg-sky-500/[0.12] text-sky-300 border border-sky-500/30 hover:brightness-125 transition-all">
+                <Rocket size={8} />
+                Promoted
+              </button>
+            )}
+            {(idea.tags || []).map(tag => (
               <button key={tag} onClick={() => onSelectTag(tag)} className="tag-pill cursor-pointer">#{tag}</button>
             ))}
           </div>

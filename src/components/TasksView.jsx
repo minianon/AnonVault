@@ -545,7 +545,7 @@ function SectionLabel({ label, count, color = 'text-slate-500', accentColor }) {
 /* ══════════════════════════════════════════════════════════
    MAIN VIEW
 ══════════════════════════════════════════════════════════ */
-export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, tasksVersion, onLock, onMenuToggle, applications }) {
+export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, tasksVersion, onLock, onMenuToggle, applications, initialDate, onClearInitialDate }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [tasks,        setTasks]        = useState([]);
   const [isFormOpen,   setIsFormOpen]   = useState(false);
@@ -597,6 +597,16 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
 
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Jumped to from the Review chart. Cleared immediately so returning to this
+  // tab later does not snap back to that date.
+  useEffect(() => {
+    if (!initialDate) return;
+    // Applying a prop to state is the point of this effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedDate(initialDate);
+    onClearInitialDate?.();
+  }, [initialDate, onClearInitialDate]);
 
   // Re-derive when another view mutates tasks. Reads the localStorage cache
   // synchronously instead of re-hitting the network — every mutation writes
