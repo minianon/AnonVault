@@ -136,7 +136,7 @@ function useCountUp(target, duration, delay) {
 }
 
 function BriefingTile({ value, label, accent, delay, dimmed }) {
-  const shown = useCountUp(value, 1000, delay);
+  const shown = useCountUp(value, 1500, delay);
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
@@ -199,16 +199,17 @@ function AccessGranted({ onComplete }) {
     // Start active phase immediately after mount to trigger animations
     const raf = requestAnimationFrame(() => setActive(true));
     
-    // The ring sweep and the tile counts both land at 1.2s; exit then, so
-    // the dwell is exactly as long as the briefing it shows.
+    // Dial, tile counts and progress bar all land together at 1.85s; exit
+    // just after, so the dwell is exactly as long as the briefing it shows
+    // and there is time to actually read three numbers.
     const tFadeOut = setTimeout(() => {
       setPhase('fadeOut');
-    }, 1250);
+    }, 1900);
 
     // Hand over to the parent, which opens the aperture onto the dashboard.
     const tComplete = setTimeout(() => {
       onComplete();
-    }, 1500);
+    }, 2150);
     
     return () => {
       cancelAnimationFrame(raf);
@@ -265,9 +266,12 @@ function AccessGranted({ onComplete }) {
               as an instrument dial; the old dashed ring read as clip-art. */}
           <svg
             width="140" height="140" viewBox="0 0 140 140"
+            className="vault-bezel-spin"
             style={{
               position: 'absolute', inset: 0, pointerEvents: 'none',
-              animation: 'lockRingRotate 44s linear infinite',
+              animation: phase === 'fadeOut'
+                ? 'vaultBezelSpinOut 0.62s cubic-bezier(0.4, 0, 0.3, 1) forwards'
+                : 'lockRingRotate 20s linear infinite',
             }}
           >
             {Array.from({ length: 60 }).map((_, i) => {
@@ -284,6 +288,28 @@ function AccessGranted({ onComplete }) {
                 />
               );
             })}
+          </svg>
+
+          {/* Orbiting scanner arc — gives the dwell visible rotation while
+              leaving the mark upright. */}
+          <svg
+            width="140" height="140" viewBox="0 0 140 140"
+            style={{
+              position: 'absolute', inset: 0, pointerEvents: 'none',
+              opacity: phase === 'fadeOut' ? 0 : 1,
+              transition: 'opacity 0.2s ease',
+              animation: 'lockRingRotate 1.9s linear infinite',
+            }}
+          >
+            <defs>
+              <linearGradient id="agOrbit" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0" />
+                <stop offset="100%" stopColor="#7dd3fc" stopOpacity="0.9" />
+              </linearGradient>
+            </defs>
+            <circle cx="70" cy="70" r="47" fill="none"
+              stroke="url(#agOrbit)" strokeWidth="1.4" strokeLinecap="round"
+              strokeDasharray="34 262" />
           </svg>
 
           {/* Progress dial — fills to today's actual completion over the
@@ -307,7 +333,7 @@ function AccessGranted({ onComplete }) {
               strokeDasharray="339.29"
               strokeDashoffset={active ? 339.29 * (1 - dialRatio) : 339.29}
               style={{
-                transition: 'stroke-dashoffset 1.2s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s ease',
+                transition: 'stroke-dashoffset 1.85s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s ease',
                 filter: dialClear ? 'none' : 'drop-shadow(0 0 5px ' + dialColor + '88)',
               }}
             />
@@ -324,7 +350,7 @@ function AccessGranted({ onComplete }) {
           )}
 
           {/* Central emblem */}
-          <div style={{
+          <div className="vault-mark-flip" style={{
             width: 84, height: 84, borderRadius: '50%',
             background: 'radial-gradient(120% 120% at 32% 22%, rgba(255, 255, 255, 0.10) 0%, rgba(56, 189, 248, 0.10) 38%, rgba(6, 14, 26, 0.94) 100%)',
             border: '1px solid ' + (dialClear ? 'rgba(148, 163, 184, 0.24)' : dialColor + '5c'),
@@ -335,10 +361,11 @@ function AccessGranted({ onComplete }) {
             ].join(', '),
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             zIndex: 2,
-            transform: phase === 'fadeOut'
-              ? 'scale(1.22) rotate(0deg)'
-              : active ? 'scale(1) rotate(0deg)' : 'scale(0.3) rotate(-90deg)',
+            transform: active ? 'scale(1) rotate(0deg)' : 'scale(0.3) rotate(-90deg)',
             transition: 'transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            animation: phase === 'fadeOut'
+              ? 'vaultMarkFlip 0.62s cubic-bezier(0.45, 0, 0.25, 1) forwards'
+              : undefined,
           }}>
             {/* The AnonVault mark, not a padlock. The lock spoke about the
                 door; by this screen you are already through it, and
@@ -491,7 +518,7 @@ function AccessGranted({ onComplete }) {
                   transformOrigin: 'left center',
                   background: 'linear-gradient(90deg, rgba(14, 165, 233, 0.3) 0%, #0ea5e9 45%, #7dd3fc 100%)',
                   boxShadow: '0 0 10px rgba(56, 189, 248, 0.45)',
-                  animation: 'vaultHairline 0.86s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
+                  animation: 'vaultHairline 1.51s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
                 }} />
                 {/* Leading head, kept in sync with the fill by sharing its
                     duration, delay and easing. */}
@@ -501,7 +528,7 @@ function AccessGranted({ onComplete }) {
                   borderRadius: '50%',
                   background: '#e0f2fe',
                   boxShadow: '0 0 10px 2px rgba(56, 189, 248, 0.7)',
-                  animation: 'vaultHairlineHead 0.86s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
+                  animation: 'vaultHairlineHead 1.51s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
                 }} />
               </div>
 
@@ -1767,6 +1794,15 @@ function AppInner() {
     setTasksVersion(v => v + 1);
   }, []);
 
+  // Panel reveals are owned entirely by [data-tabreveal]. Gating on this
+  // rather than on activeTab alone matters twice over: while the lock screen
+  // is up the attribute must be absent, or each panel would burn its
+  // animation behind the lock and have none left for the handover; and it
+  // must go on at the handover itself (revealing) rather than when the lock
+  // layer unmounts 700ms later, or the dashboard would be revealed
+  // fully-formed by the aperture and only then animate in.
+  const tabRevealOn = revealing || !showLockScreen;
+
   const stats = {
     // Upcoming only — the badge is an "needs attention" count, like
     // pendingTasks below, so events whose deadline has passed do not belong.
@@ -1823,7 +1859,7 @@ function AppInner() {
             <div className="relative flex-1 h-full w-full overflow-hidden">
               {/* Summary Dashboard Workspace */}
               <div
-                data-tabreveal={activeTab === 'dashboard' ? 'on' : undefined}
+                data-tabreveal={activeTab === 'dashboard' && tabRevealOn ? 'on' : undefined}
                 className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'dashboard'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
@@ -1846,7 +1882,7 @@ function AppInner() {
 
               {/* Hackathon Timeline Workspace */}
               <div
-                data-tabreveal={activeTab === 'timeline' ? 'on' : undefined}
+                data-tabreveal={activeTab === 'timeline' && tabRevealOn ? 'on' : undefined}
                 className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'timeline'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
@@ -1869,7 +1905,7 @@ function AppInner() {
 
               {/* Idea Vault Workspace */}
               <div
-                data-tabreveal={activeTab === 'ideas' ? 'on' : undefined}
+                data-tabreveal={activeTab === 'ideas' && tabRevealOn ? 'on' : undefined}
                 className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'ideas'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
@@ -1892,7 +1928,7 @@ function AppInner() {
 
               {/* Daily Checklist Workspace */}
               <div
-                data-tabreveal={activeTab === 'tasks' ? 'on' : undefined}
+                data-tabreveal={activeTab === 'tasks' && tabRevealOn ? 'on' : undefined}
                 className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'tasks'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
@@ -1909,7 +1945,7 @@ function AppInner() {
 
               {/* Project Ideas Workspace */}
               <div
-                data-tabreveal={activeTab === 'project-ideas' ? 'on' : undefined}
+                data-tabreveal={activeTab === 'project-ideas' && tabRevealOn ? 'on' : undefined}
                 className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'project-ideas'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
@@ -1933,7 +1969,7 @@ function AppInner() {
 
               {/* Quotes Vault Workspace */}
               <div
-                data-tabreveal={activeTab === 'quotes' ? 'on' : undefined}
+                data-tabreveal={activeTab === 'quotes' && tabRevealOn ? 'on' : undefined}
                 className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'quotes'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'

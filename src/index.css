@@ -844,29 +844,20 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
   animation: revealWipeLeft 0.62s cubic-bezier(0.16, 1, 0.3, 1) 0.10s both;
 }
 
-.app-reveal.app-reveal main        { animation: revealRise 0.60s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both; }
-.app-reveal.app-reveal main header { animation: revealRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.26s both; }
+.app-reveal main { animation: revealRise 0.60s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both; }
 
-/* sections inside the landing view arrive one after another */
-.app-reveal.app-reveal .reveal-stagger > * {
-  animation: revealPop 0.62s cubic-bezier(0.34, 1.28, 0.64, 1) both;
-}
-.app-reveal.app-reveal .reveal-stagger > *:nth-child(1) { animation-delay: 0.30s; }
-.app-reveal.app-reveal .reveal-stagger > *:nth-child(2) { animation-delay: 0.39s; }
-.app-reveal.app-reveal .reveal-stagger > *:nth-child(3) { animation-delay: 0.48s; }
-.app-reveal.app-reveal .reveal-stagger > *:nth-child(4) { animation-delay: 0.57s; }
-
-/* nested groups continue the cascade rather than restarting it */
-.app-reveal.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(1) { animation-delay: 0.50s; }
-.app-reveal.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(2) { animation-delay: 0.60s; }
+/* Panel content is deliberately NOT styled here. It is owned solely by the
+   [data-tabreveal] rules further down, for both the unlock and tab switches.
+   Two rule sets targeting the same elements with different animation-names
+   meant that dropping .app-reveal at the end of the unlock changed the
+   computed animation-name, which starts a fresh run -- the dashboard
+   animated in a second time. One owner, no restart. */
 
 @media (prefers-reduced-motion: reduce) {
   .app-reveal,
   .app-reveal::after,
   .app-reveal .glass-sidebar,
-  .app-reveal main,
-  .app-reveal main header,
-  .app-reveal .reveal-stagger > * {
+  .app-reveal main {
     animation: none !important;
   }
 }
@@ -974,4 +965,29 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
   [data-tabreveal] .reveal-stagger > * {
     animation: none !important;
   }
+}
+
+/* ── Access-granted release flourish ───────────────────────────────
+   A flat 2D spin of the mark would read as broken -- it is a figure,
+   and half the turn would leave it upside down. A Y-axis flip keeps it
+   legible the whole way round, like a coin.
+
+   This has to be a keyframe rather than a transition: transitions
+   interpolate transforms by matrix decomposition, and a 360deg rotation
+   decomposes to the same matrix as 0deg, so a transition would not turn
+   at all. Keyframes interpolate per-function, so the full turn holds. */
+@keyframes vaultMarkFlip {
+  from { transform: perspective(620px) rotateY(0deg)   scale(1); }
+  to   { transform: perspective(620px) rotateY(360deg) scale(1.22); }
+}
+
+/* The bezel spins up and away as the aperture opens. */
+@keyframes vaultBezelSpinOut {
+  from { transform: rotate(0deg);   opacity: 1; }
+  to   { transform: rotate(210deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vault-mark-flip,
+  .vault-bezel-spin { animation: none !important; }
 }
