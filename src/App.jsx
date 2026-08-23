@@ -79,15 +79,16 @@ function AccessGranted({ onComplete }) {
     // Start active phase immediately after mount to trigger animations
     const raf = requestAnimationFrame(() => setActive(true));
     
-    // Welcome Screen -> Fade Out: at 1800ms
+    // The ring sweep below runs 0.9s; exit as it completes so the dwell
+    // is exactly as long as the progress it shows, with no dead air.
     const tFadeOut = setTimeout(() => {
       setPhase('fadeOut');
-    }, 1800);
+    }, 900);
 
-    // Complete success sequence and hand over to parent: at 2250ms
+    // Hand over to the parent, which opens the aperture onto the dashboard.
     const tComplete = setTimeout(() => {
       onComplete();
-    }, 2250);
+    }, 1150);
     
     return () => {
       cancelAnimationFrame(raf);
@@ -105,8 +106,8 @@ function AccessGranted({ onComplete }) {
         backdropFilter: 'blur(30px) saturate(180%)',
         WebkitBackdropFilter: 'blur(30px) saturate(180%)',
         opacity: phase === 'fadeOut' ? 0 : active ? 1 : 0,
-        transform: phase === 'fadeOut' ? 'scale(1.05)' : 'scale(1)',
-        transition: 'opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)',
+        transform: phase === 'fadeOut' ? 'scale(1.06)' : 'scale(1)',
+        transition: 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
         overflow: 'hidden',
       }}
     >
@@ -127,7 +128,7 @@ function AccessGranted({ onComplete }) {
       <div style={{ 
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32,
         transform: active ? 'translateY(0)' : 'translateY(10px)',
-        transition: 'transform 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+        transition: 'transform 0.55s cubic-bezier(0.16, 1, 0.3, 1)',
         textAlign: 'center',
         maxWidth: 480,
         padding: '0 24px',
@@ -147,6 +148,40 @@ function AccessGranted({ onComplete }) {
             animation: 'lockRingRotate 12s linear infinite',
           }} />
 
+          {/* Unsealing progress — sweeps once over the dwell, so the wait
+              shows its own duration instead of sitting still. */}
+          <svg
+            width="140" height="140" viewBox="0 0 140 140"
+            style={{
+              position: 'absolute', inset: 0,
+              transform: 'rotate(-90deg)',
+              opacity: phase === 'fadeOut' ? 0 : 1,
+              transition: 'opacity 0.2s ease',
+              pointerEvents: 'none',
+            }}
+          >
+            <circle cx="70" cy="70" r="66" fill="none"
+              stroke="rgba(52, 211, 153, 0.10)" strokeWidth="2" />
+            <circle cx="70" cy="70" r="66" fill="none"
+              stroke="#34d399" strokeWidth="2" strokeLinecap="round"
+              strokeDasharray="414.69"
+              style={{
+                animation: 'vaultRingProgress 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards',
+                filter: 'drop-shadow(0 0 6px rgba(52, 211, 153, 0.7))',
+              }}
+            />
+          </svg>
+
+          {/* Release shockwave, fired as the aperture opens */}
+          {phase === 'fadeOut' && (
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              border: '2px solid rgba(52, 211, 153, 0.8)',
+              animation: 'vaultShock 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              pointerEvents: 'none',
+            }} />
+          )}
+
           {/* Central emblem */}
           <div style={{
             width: 88, height: 88, borderRadius: '50%',
@@ -155,8 +190,10 @@ function AccessGranted({ onComplete }) {
             boxShadow: '0 0 45px rgba(52, 211, 153, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             zIndex: 2,
-            transform: active ? 'scale(1) rotate(0deg)' : 'scale(0.3) rotate(-90deg)',
-            transition: 'transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            transform: phase === 'fadeOut'
+              ? 'scale(1.22) rotate(0deg)'
+              : active ? 'scale(1) rotate(0deg)' : 'scale(0.3) rotate(-90deg)',
+            transition: 'transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
           }}>
             {/* Cyber safe lock badge */}
             <svg viewBox="0 0 24 24" fill="none" width="40" height="40" style={{ animation: 'highlightPulse 2s infinite' }}>
@@ -167,8 +204,13 @@ function AccessGranted({ onComplete }) {
           </div>
         </div>
 
-        {/* Text Area */}
-        <div style={{ position: 'relative', width: '100%', minHeight: 90 }}>
+        {/* Text Area — lifts away just before the aperture opens */}
+        <div style={{
+          position: 'relative', width: '100%', minHeight: 90,
+          opacity: phase === 'fadeOut' ? 0 : 1,
+          transform: phase === 'fadeOut' ? 'translateY(-14px)' : 'translateY(0)',
+          transition: 'opacity 0.22s ease-out, transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}>
           <div style={{
             display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center',
           }}>
@@ -1125,8 +1167,8 @@ function AppInner() {
     setLockFadeOut(true);
     setRevealing(true);
     revealTimers.current = [
-      // unmount the lock layer as its blur-out finishes
-      setTimeout(() => setShowLockScreen(false), 520),
+      // unmount the lock layer once its aperture has finished closing
+      setTimeout(() => setShowLockScreen(false), 700),
       // drop the reveal class once the cascade is done, so the settled
       // transform stops acting as a containing block for the fixed sidebar
       setTimeout(() => setRevealing(false), 1700),
@@ -1638,9 +1680,17 @@ function AppInner() {
           inset: 0,
           zIndex: 50,
           opacity: lockFadeOut ? 0 : 1,
-          transform: lockFadeOut ? 'scale(1.06)' : 'scale(1)',
-          filter: lockFadeOut ? 'blur(14px)' : 'blur(0px)',
-          transition: 'opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s ease-out',
+          // Collapses onto the lock emblem (~41% down) so the dashboard is
+          // uncovered from the edges inward and the emblem is the last thing
+          // to go — the two screens share a pivot instead of cross-fading.
+          clipPath: lockFadeOut
+            ? 'circle(0% at 50% 41%)'
+            : 'circle(150% at 50% 41%)',
+          transform: lockFadeOut ? 'scale(1.03)' : 'scale(1)',
+          filter: lockFadeOut ? 'blur(6px)' : 'blur(0px)',
+          // The opacity leg is a late fallback for browsers that skip the
+          // clip-path animation; by then the aperture has already closed.
+          transition: 'clip-path 0.66s cubic-bezier(0.7, 0, 0.3, 1), transform 0.66s cubic-bezier(0.7, 0, 0.3, 1), filter 0.5s ease-out, opacity 0.2s ease-out 0.5s',
           pointerEvents: lockFadeOut ? 'none' : 'auto',
         }}>
           <LockScreen onAuthorize={handleUnlockComplete} />
