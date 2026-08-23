@@ -885,6 +885,14 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
   from { transform: scaleX(0); }
   to   { transform: scaleX(1); }
 }
+/* Rides the leading edge of the fill above, then dissolves on arrival.
+   Shares the fill's duration, delay and easing so the two stay locked. */
+@keyframes vaultHairlineHead {
+  from { left: 0%;   opacity: 0; }
+  10%  { opacity: 1; }
+  85%  { opacity: 1; }
+  to   { left: 100%; opacity: 0; }
+}
 @keyframes vaultSheenText {
   from { background-position: -140% 0; }
   to   { background-position: 240% 0; }
@@ -910,6 +918,10 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The bar sets its animation inline, so this needs !important to win. */
+  .vault-bar-fill { animation: none !important; transform: scaleX(1); }
+  .vault-bar-head { animation: none !important; opacity: 0; }
+
   .vault-sheen-text {
     animation: none;
     -webkit-text-fill-color: rgba(226, 232, 240, 0.8);
