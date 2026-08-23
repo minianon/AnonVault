@@ -1721,6 +1721,26 @@ function AppInner() {
 
   // --- Project Ideas Handlers ---
 
+  const handlePromoteToProject = async idea => {
+    if (!idea) return;
+    try {
+      await handleAddProjectIdea({
+        title: idea.title,
+        content: idea.content || '',
+        images: idea.images || [],
+        links: idea.links || [],
+        tags: idea.tags || [],
+        status: 'backlog',
+        promoted_from: idea.id,
+      });
+      setActiveTab('project-ideas');
+      showToast('success', 'Promoted', `"${idea.title}" is now a project concept.`);
+    } catch (err) {
+      console.error('Failed to promote idea:', err);
+      showToast('error', 'Promote Failed', 'Could not create the concept.');
+    }
+  };
+
   const handleAddProjectIdea = async (newIdea) => {
     if (usingLocalProjectIdeas) {
       const added = {
@@ -2026,6 +2046,7 @@ function AppInner() {
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
+                  onPromoteToProject={handlePromoteToProject}
                   initialSelectedIdeaId={initIdeaId}
                   onClearInitialSelectedIdea={() => setInitIdeaId(null)}
                 />

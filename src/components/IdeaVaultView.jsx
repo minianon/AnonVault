@@ -4,7 +4,7 @@ import {
   AlertTriangle, FileImage, Link as LinkIcon,
   Lightbulb, Lock, Hash, ExternalLink, Image as ImageIcon,
   Globe, ChevronDown, ChevronUp, GripVertical, Info, Maximize2,
-  ChevronLeft, ChevronRight, Menu, Star
+  ChevronLeft, ChevronRight, Menu, Star, Rocket
 } from 'lucide-react';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
@@ -231,7 +231,8 @@ function CustomDropdown({ value, onChange, options, icon, placeholder }) {
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════ */
 export default function IdeaVaultView({
-  ideas, onAdd, onUpdate, onDelete, loading, theme, onLock, showToast, onMenuToggle, initialSelectedIdeaId, onClearInitialSelectedIdea
+  ideas, onAdd, onUpdate, onDelete, loading, theme, onLock, showToast, onMenuToggle, initialSelectedIdeaId, onClearInitialSelectedIdea,
+  onPromoteToProject
 }) {
   const [searchTerm, setSearchTerm]     = useState('');
   const [selectedTag, setSelectedTag]   = useState('');
@@ -734,6 +735,7 @@ export default function IdeaVaultView({
                         setHoveredDragId={setHoveredDragId}
                         isPinned={true}
                         onTogglePin={togglePin}
+                        onPromote={onPromoteToProject}
                       />
                     </div>
                   ))}
@@ -779,6 +781,7 @@ export default function IdeaVaultView({
                         setHoveredDragId={setHoveredDragId}
                         isPinned={false}
                         onTogglePin={togglePin}
+                        onPromote={onPromoteToProject}
                       />
                     </div>
                   ))}
@@ -1174,7 +1177,7 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
 }
 
 /* ─── Idea Card ───────────────────────────────────────── */
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onPromote }) {
   const images = idea.images?.length > 0
     ? idea.images
     : idea.image_url ? [{ url: idea.image_url, caption: '' }] : [];
@@ -1252,6 +1255,12 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
             </div>
             
             <div className="w-[1px] h-3 bg-white/[0.08] self-center" />
+
+            <button onClick={() => onPromote && onPromote(idea)}
+              className="p-1.5 text-slate-400 hover:text-sky-400 rounded-lg hover:bg-sky-500/[0.08] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-sky-500/20"
+              title="Promote to a project concept">
+              <Rocket size={11} />
+            </button>
 
             <button onClick={() => onEdit(idea)}
               className="p-1.5 text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-indigo-500/[0.08] transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-indigo-500/20"
