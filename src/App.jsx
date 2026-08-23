@@ -20,7 +20,8 @@ import {
   fetchProjectIdeas,
   addProjectIdea,
   updateProjectIdea,
-  deleteProjectIdea 
+  deleteProjectIdea,
+  getSupabaseClient
 } from './services/supabase';
 import { fetchQuotes, addQuote, updateQuote, deleteQuote } from './services/quotes';
 import { getTasksForDateSync, loadAllTasks } from './services/tasks';
@@ -163,6 +164,14 @@ function AccessGranted({ onComplete }) {
   const [phase, setPhase] = useState('welcome'); // 'welcome' -> 'fadeOut'
   // Snapshot once so the tiles cannot change value mid-count.
   const [brief] = useState(computeBriefing);
+  // The shackle springs open partway through the dwell.
+  const [unlatched, setUnlatched] = useState(false);
+  // Real state, not decoration: whether this session is talking to Supabase
+  // or running off the local cache.
+  const [session] = useState(() => ({
+    sync: getSupabaseClient() ? 'Cloud sync' : 'Local vault',
+    at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  }));
 
   const summary =
     brief.dueThisWeek > 0
@@ -177,6 +186,9 @@ function AccessGranted({ onComplete }) {
     
     // The ring sweep and the tile counts both land at 1.2s; exit then, so
     // the dwell is exactly as long as the briefing it shows.
+    // Unlatch mid-sweep so the mechanism resolves before the copy does.
+    const tUnlatch = setTimeout(() => setUnlatched(true), 520);
+
     const tFadeOut = setTimeout(() => {
       setPhase('fadeOut');
     }, 1250);
@@ -188,6 +200,7 @@ function AccessGranted({ onComplete }) {
     
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(tUnlatch);
       clearTimeout(tFadeOut);
       clearTimeout(tComplete);
     };
@@ -237,12 +250,30 @@ function AccessGranted({ onComplete }) {
           position: 'relative', width: 140, height: 140, 
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          {/* Outer ring */}
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: '50%',
-            border: '2px dashed rgba(56, 189, 248, 0.3)',
-            animation: 'lockRingRotate 12s linear infinite',
-          }} />
+          {/* Precision bezel — fine ticks with every fifth emphasised. Reads
+              as an instrument dial; the old dashed ring read as clip-art. */}
+          <svg
+            width="140" height="140" viewBox="0 0 140 140"
+            style={{
+              position: 'absolute', inset: 0, pointerEvents: 'none',
+              animation: 'lockRingRotate 44s linear infinite',
+            }}
+          >
+            {Array.from({ length: 60 }).map((_, i) => {
+              const major = i % 5 === 0;
+              return (
+                <line
+                  key={i}
+                  x1="70" y1={major ? 3 : 4.5}
+                  x2="70" y2={major ? 10 : 9}
+                  stroke={major ? 'rgba(125, 211, 252, 0.34)' : 'rgba(125, 211, 252, 0.13)'}
+                  strokeWidth={major ? 1.4 : 1}
+                  strokeLinecap="round"
+                  transform={`rotate(${i * 6} 70 70)`}
+                />
+              );
+            })}
+          </svg>
 
           {/* Unsealing progress — sweeps once over the dwell, so the wait
               shows its own duration instead of sitting still. */}
@@ -256,14 +287,14 @@ function AccessGranted({ onComplete }) {
               pointerEvents: 'none',
             }}
           >
-            <circle cx="70" cy="70" r="66" fill="none"
-              stroke="rgba(52, 211, 153, 0.10)" strokeWidth="2" />
-            <circle cx="70" cy="70" r="66" fill="none"
-              stroke="#34d399" strokeWidth="2" strokeLinecap="round"
-              strokeDasharray="414.69"
+            <circle cx="70" cy="70" r="54" fill="none"
+              stroke="rgba(255, 255, 255, 0.05)" strokeWidth="1.6" />
+            <circle cx="70" cy="70" r="54" fill="none"
+              stroke="#34d399" strokeWidth="1.6" strokeLinecap="round"
+              strokeDasharray="339.29"
               style={{
                 animation: 'vaultRingProgress 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards',
-                filter: 'drop-shadow(0 0 6px rgba(52, 211, 153, 0.7))',
+                filter: 'drop-shadow(0 0 5px rgba(52, 211, 153, 0.55))',
               }}
             />
           </svg>
@@ -272,7 +303,7 @@ function AccessGranted({ onComplete }) {
           {phase === 'fadeOut' && (
             <div style={{
               position: 'absolute', inset: 0, borderRadius: '50%',
-              border: '2px solid rgba(52, 211, 153, 0.8)',
+              border: '1px solid rgba(52, 211, 153, 0.55)',
               animation: 'vaultShock 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards',
               pointerEvents: 'none',
             }} />
@@ -280,10 +311,14 @@ function AccessGranted({ onComplete }) {
 
           {/* Central emblem */}
           <div style={{
-            width: 88, height: 88, borderRadius: '50%',
-            background: 'linear-gradient(135deg, rgba(52, 211, 153, 0.22) 0%, rgba(56, 189, 248, 0.08) 100%)',
-            border: '2px solid #34d399',
-            boxShadow: '0 0 45px rgba(52, 211, 153, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+            width: 84, height: 84, borderRadius: '50%',
+            background: 'radial-gradient(120% 120% at 32% 22%, rgba(255, 255, 255, 0.10) 0%, rgba(52, 211, 153, 0.11) 38%, rgba(6, 20, 26, 0.94) 100%)',
+            border: '1px solid rgba(52, 211, 153, 0.45)',
+            boxShadow: [
+              '0 0 26px rgba(52, 211, 153, 0.18)',
+              'inset 0 1px 0 rgba(255, 255, 255, 0.16)',
+              'inset 0 -10px 22px rgba(0, 0, 0, 0.5)',
+            ].join(', '),
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             zIndex: 2,
             transform: phase === 'fadeOut'
@@ -291,11 +326,23 @@ function AccessGranted({ onComplete }) {
               : active ? 'scale(1) rotate(0deg)' : 'scale(0.3) rotate(-90deg)',
             transition: 'transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)',
           }}>
-            {/* Cyber safe lock badge */}
-            <svg viewBox="0 0 24 24" fill="none" width="40" height="40" style={{ animation: 'highlightPulse 2s infinite' }}>
-              <rect x="3" y="11" width="18" height="11" rx="2" stroke="#34d399" strokeWidth="2" />
-              <path d="M7 11V7a5 5 0 0110 0v4" stroke="#34d399" strokeWidth="2" strokeLinecap="round" />
-              <circle cx="12" cy="16" r="1.5" fill="#34d399" />
+            {/* The shackle actually unlatches — a closed padlock on the
+                access-granted screen was saying the opposite of what
+                just happened. */}
+            <svg viewBox="0 0 24 24" fill="none" width="32" height="32">
+              <path
+                d="M8 11V7.2a4 4 0 018 0V11"
+                stroke="#5eead4" strokeWidth="1.9" strokeLinecap="round"
+                style={{
+                  transformOrigin: '16px 11px',
+                  transform: unlatched ? 'rotate(-22deg) translate(0.5px, -1px)' : 'none',
+                  transition: 'transform 0.6s cubic-bezier(0.34, 1.45, 0.64, 1)',
+                }}
+              />
+              <rect x="4.6" y="11" width="14.8" height="9.6" rx="2.3"
+                stroke="#34d399" strokeWidth="1.9" />
+              <circle cx="12" cy="14.9" r="1.3" fill="#34d399" />
+              <path d="M12 16.1v2.1" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </div>
         </div>
@@ -374,27 +421,47 @@ function AccessGranted({ onComplete }) {
               />
             </div>
 
-            <div style={{ 
-              display: 'flex', alignItems: 'center', gap: 6,
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9,
+              width: '100%', maxWidth: 250, marginTop: 16,
               animation: 'popupSlideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.34s forwards',
               opacity: 0,
-              marginTop: 10
             }}>
-              <span style={{
-                fontSize: 10, 
+              <span className="vault-sheen-text" style={{
+                fontSize: 9.5,
                 fontWeight: 800,
-                letterSpacing: '0.15em', 
-                color: '#34d399', 
+                letterSpacing: '0.3em',
                 textTransform: 'uppercase',
                 fontFamily: "'JetBrains Mono', monospace",
               }}>
-                LET'S GET BACK TO WORK
+                Entering Workspace
               </span>
+
+              {/* Hairline fills in step with the ring — one clock, two
+                  read-outs, instead of a cursor blinking out of time. */}
+              <div style={{
+                width: '100%', height: 1, borderRadius: 1, overflow: 'hidden',
+                background: 'rgba(255, 255, 255, 0.07)',
+              }}>
+                <div style={{
+                  height: '100%', width: '100%',
+                  transformOrigin: 'left center',
+                  background: 'linear-gradient(90deg, rgba(52, 211, 153, 0.12), #34d399)',
+                  boxShadow: '0 0 8px rgba(52, 211, 153, 0.5)',
+                  animation: 'vaultHairline 0.86s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
+                }} />
+              </div>
+
               <span style={{
-                width: 6, height: 10,
-                backgroundColor: '#34d399',
-                animation: 'cursorBlink 1s step-end infinite',
-              }} />
+                fontSize: 8.5,
+                fontWeight: 700,
+                letterSpacing: '0.2em',
+                textTransform: 'uppercase',
+                fontFamily: "'JetBrains Mono', monospace",
+                color: 'rgba(148, 163, 184, 0.36)',
+              }}>
+                {session.sync} &middot; {session.at}
+              </span>
             </div>
           </div>
         </div>
