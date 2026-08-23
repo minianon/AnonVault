@@ -253,6 +253,30 @@ export default function ProjectIdeasView({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem('anonvault_projects_view') || 'board'; }
+    catch { return 'board'; }
+  });
+
+  const setView = mode => {
+    setViewMode(mode);
+    try { localStorage.setItem('anonvault_projects_view', mode); } catch { /* not critical */ }
+  };
+
+  // Board drag: the id being carried between columns. Kept separate from the
+  // reorder drag state above, which only applies to the grid.
+  const [boardDragId, setBoardDragId] = useState(null);
+  const [dragOverCol, setDragOverCol] = useState(null);
+
+  const setStatus = async (idea, next) => {
+    if (!idea || (idea.status || 'backlog') === next) return;
+    try {
+      if (onUpdate) await onUpdate(idea.id, { ...idea, status: next });
+    } catch (err) {
+      console.error('Failed to move concept:', err);
+      showToast?.('error', 'Move Failed', 'Could not change the stage.');
+    }
+  };
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('anonvault_project_ideas_sortby') || 'custom');
 
   const [pinnedIds, setPinnedIds] = useState(() => {
@@ -731,6 +755,18 @@ export default function ProjectIdeasView({
             placeholder="All Tags"
           />
 
+          <div className="flex items-center gap-1 p-1 rounded-xl"
+            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+            {['board', 'grid'].map(mode => (
+              <button key={mode} onClick={() => setView(mode)}
+                className={`px-2.5 py-1 text-[11px] font-bold rounded-lg cursor-pointer transition-all capitalize ${
+                  viewMode === mode ? 'bg-sky-500/[0.14] text-sky-300' : 'text-slate-500 hover:text-slate-300'
+                }`}>
+                {mode}
+              </button>
+            ))}
+          </div>
+
           <CustomDropdown
             value={selectedStatus}
             onChange={setSelectedStatus}
@@ -768,6 +804,71 @@ export default function ProjectIdeasView({
                 Create Concept
               </button>
             )}
+          </div>
+        ) : viewMode === 'board' ? (
+          /* Four columns, one per stage. A grid plus a filter dropdown hid the
+             distribution, which is the entire point of a funnel. */
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+            {STATUS_ORDER.map(key => {
+              const meta = PROJECT_STATUS[key];
+              const column = processedIdeas.filter(i => (i.status || 'backlog') === key);
+              const isTarget = dragOverCol === key;
+              return (
+                <div key={key}
+                  onDragOver={e => { e.preventDefault(); setDragOverCol(key); }}
+                  onDragLeave={() => setDragOverCol(c => (c === key ? null : c))}
+                  onDrop={e => {
+                    e.preventDefault();
+                    const moved = processedIdeas.find(i => i.id === boardDragId);
+                    setDragOverCol(null);
+                    setBoardDragId(null);
+                    if (moved) setStatus(moved, key);
+                  }}
+                  className="rounded-2xl p-2.5 transition-all min-h-[140px]"
+                  style={{
+                    background: isTarget ? meta.bg : 'rgba(255,255,255,0.014)',
+                    border: '1px solid ' + (isTarget ? meta.border : 'rgba(255,255,255,0.05)'),
+                  }}>
+                  <div className="flex items-center gap-2 px-1.5 pb-2.5 mb-1">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: meta.color }} />
+                    <h3 className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
+                      style={{ color: meta.color }}>{meta.label}</h3>
+                    <span className="text-[10px] font-bold tabular-nums text-slate-600 ml-auto">
+                      {column.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {column.map(idea => (
+                      <div key={idea.id}
+                        draggable
+                        onDragStart={() => setBoardDragId(idea.id)}
+                        onDragEnd={() => { setBoardDragId(null); setDragOverCol(null); }}
+                        className={`transition-opacity ${boardDragId === idea.id ? 'opacity-30' : ''}`}>
+                        <IdeaCard
+                          idea={idea}
+                          sortBy={sortBy}
+                          onEdit={handleOpenEdit}
+                          onDelete={id => setDeleteConfirmId(id)}
+                          onSelectTag={setSelectedTag}
+                          onViewDetails={setSelectedIdea}
+                          isFilteringOrSearching={true}
+                          setHoveredDragId={setHoveredDragId}
+                          isPinned={pinnedIds.includes(idea.id)}
+                          onTogglePin={togglePin}
+                          onAdvanceStatus={advanceStatus}
+                        />
+                      </div>
+                    ))}
+                    {column.length === 0 && (
+                      <p className="text-[10.5px] text-slate-700 font-semibold text-center py-5">
+                        Drop here
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div>

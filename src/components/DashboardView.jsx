@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   LayoutDashboard, CheckSquare, Star, Quote, Calendar, AlertTriangle, 
   MapPin, Clock, ExternalLink, ChevronRight, Tag, Lightbulb, Code2, LinkIcon,
-  Circle, CheckCircle2, ChevronDown, Repeat2, CheckCheck
+  Circle, CheckCircle2, ChevronDown, Repeat2, CheckCheck, Flame, TrendingUp, Rocket, ListChecks, BarChart3
 } from 'lucide-react';
-import { getTasksForDate, getTasksForDateSync, toggleTaskCompletion, toggleSubtaskCompletion } from '../services/tasks';
+import {
+  getTasksForDate, getTasksForDateSync, toggleTaskCompletion, toggleSubtaskCompletion,
+  getStreaks, getCompletionHistory, getHackathonProgress
+} from '../services/tasks';
 import { formatDate, getStatusStyles } from '../utils/helpers';
 
 const PRIORITY_META = {
@@ -325,6 +328,29 @@ export default function DashboardView({
     setMarkingAll(false);
   };
 
+  // 3c. Pulse strip. The dashboard predated Review and the project pipeline,
+  //      so it was still describing the app as it was several features ago.
+  //      Recomputed off tasksVersion so it tracks completions live.
+  const pulse = useMemo(() => {
+    const streaks = getStreaks(180);
+    const history = getCompletionHistory(7);
+    const totals = history.reduce(
+      (a, d) => ({ s: a.s + d.scheduled, c: a.c + d.completed }), { s: 0, c: 0 }
+    );
+    return {
+      streak: streaks.current,
+      weekRate: totals.s ? Math.round((totals.c / totals.s) * 100) : null,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasksVersion]);
+
+  const building = (projectIdeas || []).filter(p => p?.status === 'building').length;
+  const hackProgress = useMemo(
+    () => getHackathonProgress(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasksVersion]
+  );
+
   // 4. Deterministic Daily Quote
   const getDailyQuote = () => {
     if (!quotes || quotes.length === 0) return null;
@@ -420,6 +446,36 @@ export default function DashboardView({
       {/* Main Grid View */}
       <div className="flex-1 overflow-y-auto px-8 py-7 space-y-5 custom-scrollbar reveal-stagger">
         
+        {/* Pulse strip */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { icon: Flame, label: 'Streak', value: pulse.streak, sub: pulse.streak === 1 ? 'clean day' : 'clean days', accent: '#fb923c', tab: 'review' },
+            { icon: TrendingUp, label: '7-day rate', value: pulse.weekRate === null ? '—' : pulse.weekRate + '%', sub: 'completed', accent: '#38bdf8', tab: 'review' },
+            { icon: Rocket, label: 'Building', value: building, sub: 'concepts', accent: '#818cf8', tab: 'project-ideas' },
+            { icon: BarChart3, label: 'Review', value: 'Open', sub: 'full history', accent: '#a78bfa', tab: 'review' },
+          ].map(card => (
+            <button key={card.label}
+              onClick={() => setActiveTab(card.tab)}
+              className="rounded-2xl p-3.5 flex flex-col gap-2 text-left cursor-pointer transition-all hover:-translate-y-[1.5px]"
+              style={{
+                background: 'linear-gradient(150deg, rgba(14,16,30,0.72) 0%, rgba(10,12,22,0.6) 100%)',
+                border: '1px solid rgba(255,255,255,0.055)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.035)',
+              }}>
+              <div className="flex items-center gap-1.5">
+                <card.icon size={11} style={{ color: card.accent }} />
+                <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-600">{card.label}</span>
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[19px] font-extrabold leading-none tabular-nums" style={{ color: card.accent }}>
+                  {card.value}
+                </span>
+                <span className="text-[9.5px] font-semibold text-slate-600">{card.sub}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+
         {/* Daily Quote Card */}
         <div 
           className="group/quoteview relative rounded-2xl p-[1px] transition-all duration-500 select-none overflow-hidden"
@@ -641,11 +697,21 @@ export default function DashboardView({
                             </div>
                           </div>
 
-                          {/* Status Badge */}
-                          <div className="flex flex-wrap gap-1.5 mt-2">
+                          {/* Status Badge + checklist progress */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
                             <span className={`inline-flex px-2 py-0.5 text-[9px] font-bold rounded-full border ${status.bg} ${status.text} ${status.border}`}>
                               {status.label}
                             </span>
+                            {hackProgress[app.id]?.total > 0 && (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded-full border ${
+                                hackProgress[app.id].done === hackProgress[app.id].total
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                                  : 'bg-sky-500/10 text-sky-300 border-sky-500/25'
+                              }`}>
+                                <ListChecks size={8} />
+                                {hackProgress[app.id].done}/{hackProgress[app.id].total}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -743,7 +809,17 @@ export default function DashboardView({
                       >
                         <div className="min-w-0 flex-1">
                           <p className="text-[12px] font-semibold text-slate-200 truncate group-hover/item:text-white transition-colors">{proj.title}</p>
-                          {proj.category && <p className="text-[9.5px] text-slate-500 font-medium mt-0.5">#{proj.category}</p>}
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {proj.status && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider"
+                                style={{ color: proj.status === 'shipped' ? '#34d399'
+                                  : proj.status === 'building' ? '#38bdf8'
+                                  : proj.status === 'parked' ? '#a1a1aa' : '#64748b' }}>
+                                {proj.status}
+                              </span>
+                            )}
+                            {proj.category && <p className="text-[9.5px] text-slate-500 font-medium">#{proj.category}</p>}
+                          </div>
                         </div>
                         <ChevronRight size={12} className="text-slate-655 group-hover/item:text-sky-400 transition-colors" />
                       </div>
