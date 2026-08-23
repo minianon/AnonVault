@@ -831,7 +831,7 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto px-4 lg:px-7 py-6 space-y-6 relative z-10">
+      <div className="flex-1 overflow-y-auto px-4 lg:px-7 py-6 space-y-6 relative z-10 reveal-stagger">
         {totalCount === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-24 max-w-sm mx-auto">
             <div className="relative mb-6">

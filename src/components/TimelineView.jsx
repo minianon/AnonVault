@@ -378,7 +378,7 @@ export default function TimelineView({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-7 py-6">
+      <div className="flex-1 overflow-y-auto px-7 py-6 reveal-stagger">
         {loading ? (
           <div className="h-48 flex items-center justify-center gap-3 text-slate-500 text-sm">
             <span className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />

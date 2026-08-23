@@ -1763,7 +1763,9 @@ function AppInner() {
           <ErrorBoundary>
             <div className="relative flex-1 h-full w-full overflow-hidden">
               {/* Summary Dashboard Workspace */}
-              <div className={`absolute inset-0 transition-all duration-300 ease-out ${
+              <div
+                data-tabreveal={activeTab === 'dashboard' ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'dashboard'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
@@ -1784,7 +1786,9 @@ function AppInner() {
               </div>
 
               {/* Hackathon Timeline Workspace */}
-              <div className={`absolute inset-0 transition-all duration-300 ease-out ${
+              <div
+                data-tabreveal={activeTab === 'timeline' ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'timeline'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
@@ -1805,7 +1809,9 @@ function AppInner() {
               </div>
 
               {/* Idea Vault Workspace */}
-              <div className={`absolute inset-0 transition-all duration-300 ease-out ${
+              <div
+                data-tabreveal={activeTab === 'ideas' ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'ideas'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
@@ -1826,7 +1832,9 @@ function AppInner() {
               </div>
 
               {/* Daily Checklist Workspace */}
-              <div className={`absolute inset-0 transition-all duration-300 ease-out ${
+              <div
+                data-tabreveal={activeTab === 'tasks' ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'tasks'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
@@ -1841,7 +1849,9 @@ function AppInner() {
               </div>
 
               {/* Project Ideas Workspace */}
-              <div className={`absolute inset-0 transition-all duration-300 ease-out ${
+              <div
+                data-tabreveal={activeTab === 'project-ideas' ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'project-ideas'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
@@ -1863,7 +1873,9 @@ function AppInner() {
               </div>
 
               {/* Quotes Vault Workspace */}
-              <div className={`absolute inset-0 transition-all duration-300 ease-out ${
+              <div
+                data-tabreveal={activeTab === 'quotes' ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
                 activeTab === 'quotes'
                   ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
                   : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
