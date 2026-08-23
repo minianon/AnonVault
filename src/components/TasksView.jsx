@@ -512,7 +512,7 @@ function SectionLabel({ label, count, color = 'text-slate-500', accentColor }) {
 /* ══════════════════════════════════════════════════════════
    MAIN VIEW
 ══════════════════════════════════════════════════════════ */
-export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, onLock, onMenuToggle }) {
+export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, tasksVersion, onLock, onMenuToggle }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [tasks,        setTasks]        = useState([]);
   const [isFormOpen,   setIsFormOpen]   = useState(false);
@@ -551,14 +551,28 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
     showToast?.('success', 'Task Restored', 'Task is visible again.');
   }, [cancelledMap, selectedDate, showToast]);
 
-  const refresh = useCallback(async () => {
+  // fetch only — used for external refreshes so we never notify back and loop
+  const reload = useCallback(async () => {
     const fetched = await getTasksForDate(selectedDate);
     setTasks(fetched);
+  }, [selectedDate]);
+
+  const refresh = useCallback(async () => {
+    await reload();
     onTasksChange?.();
-  }, [selectedDate, onTasksChange]);
+  }, [reload, onTasksChange]);
 
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Refetch when another view mutates tasks. Skips the first run so this does
+  // not duplicate the mount fetch above.
+  const seenVersion = useRef(tasksVersion);
+  useEffect(() => {
+    if (seenVersion.current === tasksVersion) return;
+    seenVersion.current = tasksVersion;
+    reload();
+  }, [tasksVersion, reload]);
 
 
   const shiftDate = delta => {
