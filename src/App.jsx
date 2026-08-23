@@ -135,13 +135,25 @@ function useCountUp(target, duration, delay) {
   return value;
 }
 
-function BriefingTile({ value, label, accent, delay, dimmed }) {
+function BriefingTile({ value, label, accent, delay, dimmed, onJump }) {
   const shown = useCountUp(value, 1500, delay);
+  const [hover, setHover] = useState(false);
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
-      padding: '0 18px', minWidth: 76,
-    }}>
+    <button
+      type="button"
+      onClick={e => { e.stopPropagation(); onJump(); }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Open this section"
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+        padding: '4px 18px', minWidth: 76,
+        background: hover ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
+        border: 'none', borderRadius: 10,
+        cursor: 'pointer', font: 'inherit',
+        transform: hover ? 'translateY(-1px)' : 'none',
+        transition: 'background 0.18s ease, transform 0.18s ease',
+      }}>
       <span style={{
         fontSize: 24, fontWeight: 800, lineHeight: 1,
         fontFamily: "'JetBrains Mono', monospace",
@@ -154,13 +166,14 @@ function BriefingTile({ value, label, accent, delay, dimmed }) {
       <span style={{
         fontSize: 8.5, fontWeight: 800, letterSpacing: '0.16em',
         textTransform: 'uppercase', textAlign: 'center',
-        color: 'rgba(148, 163, 184, 0.55)',
+        color: hover ? 'rgba(203, 213, 225, 0.85)' : 'rgba(148, 163, 184, 0.55)',
         fontFamily: "'JetBrains Mono', monospace",
         whiteSpace: 'pre-line',
+        transition: 'color 0.18s ease',
       }}>
         {label}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -170,11 +183,16 @@ function AccessGranted({ onComplete }) {
   const [phase, setPhase] = useState('welcome'); // 'welcome' -> 'fadeOut'
   // Snapshot once so the tiles cannot change value mid-count.
   const [brief] = useState(computeBriefing);
-  // Real state, not decoration: whether this session is talking to Supabase
-  // or running off the local cache.
   const [session] = useState(() => {
     const now = new Date();
+    const h = now.getHours();
     return {
+      greeting:
+        h < 5  ? 'Good night'
+      : h < 12 ? 'Good morning'
+      : h < 18 ? 'Good afternoon'
+      : h < 22 ? 'Good evening'
+      :          'Good night',
       day: now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
       at: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
@@ -195,33 +213,56 @@ function AccessGranted({ onComplete }) {
         ? brief.tasksToday + ' task' + (brief.tasksToday > 1 ? 's' : '') + ' waiting today.'
         : 'Nothing pressing. Your vault is ready.';
 
+  // Everything that ends the screen goes through here, so the natural
+  // timeline and a skip cannot both fire. `targetTab` routes the handover
+  // when a briefing tile was the thing that dismissed it.
+  const exitedRef = useRef(false);
+  const timersRef = useRef([]);
+
+  // onComplete is an inline arrow in LockScreen's render, so it is a new
+  // function every render. Held in a ref to keep `finish` stable: otherwise
+  // the effect below re-runs on any LockScreen re-render and restarts the
+  // dwell timer. LockScreen does re-render during the dwell -- its
+  // "don't know Mini Anon?" popup fires on a 3s timer -- so this is not
+  // hypothetical.
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; });
+
+  const finish = useCallback(targetTab => {
+    if (exitedRef.current) return;
+    exitedRef.current = true;
+    timersRef.current.forEach(clearTimeout);
+    setPhase('fadeOut');
+    timersRef.current = [setTimeout(() => onCompleteRef.current(targetTab), 250)];
+  }, []);
+
   useEffect(() => {
     // Start active phase immediately after mount to trigger animations
     const raf = requestAnimationFrame(() => setActive(true));
-    
+
     // Dial, tile counts and progress bar all land together at 1.85s; exit
     // just after, so the dwell is exactly as long as the briefing it shows
-    // and there is time to actually read three numbers.
-    const tFadeOut = setTimeout(() => {
-      setPhase('fadeOut');
-    }, 1900);
+    // and there is time to actually read three numbers. Any key or click
+    // cuts straight to the handover — this runs on every unlock, and a
+    // splash you cannot dismiss stops being a nice touch fairly quickly.
+    timersRef.current = [setTimeout(() => finish(), 1900)];
 
-    // Hand over to the parent, which opens the aperture onto the dashboard.
-    const tComplete = setTimeout(() => {
-      onComplete();
-    }, 2150);
-    
+    const onKey = () => finish();
+    window.addEventListener('keydown', onKey);
+        
     return () => {
       cancelAnimationFrame(raf);
-      clearTimeout(tFadeOut);
-      clearTimeout(tComplete);
+      window.removeEventListener('keydown', onKey);
+      timersRef.current.forEach(clearTimeout);
     };
-  }, [onComplete]);
+  }, [finish]);
 
   return (
     <div
+      onClick={() => finish()}
       style={{
         position: 'absolute', inset: 0, zIndex: 60,
+        cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'radial-gradient(circle at center, rgba(6, 10, 20, 0.98) 0%, rgba(2, 4, 8, 1) 100%)',
         backdropFilter: 'blur(30px) saturate(180%)',
@@ -251,7 +292,7 @@ function AccessGranted({ onComplete }) {
         transform: active ? 'translateY(0)' : 'translateY(10px)',
         transition: 'transform 0.55s cubic-bezier(0.16, 1, 0.3, 1)',
         textAlign: 'center',
-        maxWidth: 480,
+        maxWidth: 620,
         padding: '0 24px',
         position: 'relative',
         zIndex: 62,
@@ -425,8 +466,11 @@ function AccessGranted({ onComplete }) {
             display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center',
           }}>
             <h2 style={{
-              margin: 0, 
-              fontSize: 26, 
+              margin: 0,
+              // clamped: 'Good afternoon Mini Anon' is far wider than
+              // 'Welcome Mini Anon' was, and must not overflow on narrow
+              // viewports.
+              fontSize: 'clamp(17px, 3.1vw, 26px)',
               fontWeight: 900,
               letterSpacing: '0.22em', 
               textTransform: 'uppercase',
@@ -435,7 +479,13 @@ function AccessGranted({ onComplete }) {
               fontFamily: "'Plus Jakarta Sans', sans-serif",
               animation: 'popupSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
             }}>
-              Welcome <span style={{ color: '#38bdf8', textShadow: '0 0 35px rgba(56, 189, 248, 0.85)' }}>Mini Anon</span>
+              {/* inline-block + nowrap so a wrap lands between the greeting
+                  and the name rather than inside either of them */}
+              <span style={{ display: 'inline-block', whiteSpace: 'nowrap' }}>{session.greeting}</span>{' '}
+              <span style={{
+                display: 'inline-block', whiteSpace: 'nowrap',
+                color: '#38bdf8', textShadow: '0 0 35px rgba(56, 189, 248, 0.85)',
+              }}>Mini Anon</span>
             </h2>
 
             <p style={{
@@ -469,6 +519,7 @@ function AccessGranted({ onComplete }) {
                 accent="#38bdf8"
                 delay={180}
                 dimmed={brief.tasksToday === 0}
+                onJump={() => finish('tasks')}
               />
               <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.06)' }} />
               <BriefingTile
@@ -477,6 +528,7 @@ function AccessGranted({ onComplete }) {
                 accent="#fbbf24"
                 delay={260}
                 dimmed={brief.dueThisWeek === 0}
+                onJump={() => finish('timeline')}
               />
               <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.06)' }} />
               <BriefingTile
@@ -485,6 +537,7 @@ function AccessGranted({ onComplete }) {
                 accent="#34d399"
                 delay={340}
                 dimmed={brief.concepts === 0}
+                onJump={() => finish('project-ideas')}
               />
             </div>
 
@@ -1149,7 +1202,7 @@ function LockScreen({ onAuthorize }) {
       )}
       {/* ═══ ACCESS GRANTED OVERLAY ═══ */}
       {unlocking && (
-        <AccessGranted onComplete={() => { sessionStorage.setItem('minianon_authorized','true'); onAuthorize(); }} />
+        <AccessGranted onComplete={targetTab => { sessionStorage.setItem('minianon_authorized','true'); onAuthorize(targetTab); }} />
       )}
 
       {/* ═══ MAIN CONTENT (no vault door split) ═══ */}
@@ -1443,7 +1496,10 @@ function AppInner() {
     setShowLockScreen(true);
   };
 
-  const handleUnlockComplete = () => {
+  const handleUnlockComplete = targetTab => {
+    // A briefing tile can hand us the tab it described, so the unlock lands
+    // where the user was actually headed instead of always on the dashboard.
+    if (targetTab) setActiveTab(targetTab);
     setIsAuthorized(true);
     setLockFadeOut(true);
     setRevealing(true);
