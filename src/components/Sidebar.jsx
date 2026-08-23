@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CalendarRange, Lightbulb, TrendingUp, CheckSquare, X, Zap, ChevronLeft, ChevronRight, Rocket, Quote, LayoutDashboard, Pin } from 'lucide-react';
+import { CalendarRange, Lightbulb, TrendingUp, CheckSquare, X, Zap, ChevronLeft, ChevronRight, Rocket, Quote, LayoutDashboard, Pin, BarChart3 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, setMobileOpen }) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -58,11 +58,23 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
       accent: '#818cf8',
     },
     {
+      id: 'review',
+      label: 'Review',
+      icon: BarChart3,
+      desc: 'What actually happened',
+      accent: '#a78bfa',
+    },
+  ];
+
+  // Quotes feeds a single dashboard card. That is not worth a primary slot
+  // beside five sections you work in daily, so it sits in a quieter group
+  // rather than being removed -- the section and its data are untouched.
+  const secondaryItems = [
+    {
       id: 'quotes',
       label: 'Quotes Vault',
       icon: Quote,
       count: stats.totalQuotes,
-      desc: 'Inspirational wisdom',
       accent: '#f43f5e',
     },
   ];
@@ -251,6 +263,46 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
               );
             })}
           </nav>
+
+          {/* Secondary group — reachable, just not competing for attention */}
+          <div className="mt-5">
+            <div className="divider mb-3" />
+            {!isCollapsed && (
+              <p className="text-[10px] font-bold text-slate-700 uppercase tracking-[0.18em] px-3 mb-2.5">
+                More
+              </p>
+            )}
+            <nav className="flex flex-col gap-1.5">
+              {secondaryItems.map(({ id, label, icon: Icon, count, accent }) => {
+                const isActive = activeTab === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => { setActiveTab(id); setMobileOpen(false); }}
+                    className={`flex items-center gap-2.5 rounded-xl transition-all cursor-pointer ${
+                      isCollapsed ? 'justify-center py-2' : 'px-3 py-2'
+                    } ${isActive ? 'bg-white/[0.06]' : 'hover:bg-white/[0.03]'}`}
+                    title={isCollapsed ? label : ''}
+                  >
+                    <Icon size={13} style={{ color: isActive ? accent : '#475569' }} className="shrink-0" />
+                    {!isCollapsed && (
+                      <>
+                        <span className="flex-1 text-left text-[12px] font-semibold"
+                          style={{ color: isActive ? '#cbd5e1' : '#64748b' }}>
+                          {label}
+                        </span>
+                        {count > 0 && (
+                          <span className="text-[10px] font-bold tabular-nums text-slate-700 shrink-0">
+                            {count}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
         </div>
 
         {/* ── Footer ── */}
