@@ -3,7 +3,7 @@ import {
   Plus, Search, ArrowUpDown, ExternalLink, 
   Edit3, Trash2, Calendar, Link as LinkIcon, AlertTriangle, 
   Clock, ChevronDown, ChevronUp, ChevronRight, ListCollapse,
-  Lock, X, Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, Menu
+  Lock, X, Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, Menu, History
 } from 'lucide-react';
 import { formatDate, getPriorityStyles, getStatusStyles, sortApplicationsByDeadline, groupApplicationsByMonth } from '../utils/helpers';
 
@@ -104,6 +104,7 @@ export default function TimelineView({
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [selectedAppDetails, setSelectedAppDetails] = useState(null);
   const [expandedMonths, setExpandedMonths] = useState({});
+  const [showPast, setShowPast] = useState(false);
 
   useEffect(() => {
     if (initialSelectedAppId && applications) {
@@ -234,8 +235,28 @@ export default function TimelineView({
     ? filteredApps.filter(app => app.priority !== 'high' || (app.deadline && new Date(app.deadline) < new Date()))
     : filteredApps;
 
-  const sortedApps = sortApplicationsByDeadline(mainApps, sortOrder);
+  // Expired events used to sit at the top of a single deadline-ascending list,
+  // pushing everything still upcoming below the fold. Split them out: the
+  // timeline shows upcoming by default, and the Past toggle swaps it over.
+  const isExpired = app => !!(app.deadline && new Date(app.deadline) < new Date());
+  const upcomingApps = mainApps.filter(app => !isExpired(app));
+  const pastApps     = mainApps.filter(isExpired);
+
+  const timelineApps = showPast ? pastApps : upcomingApps;
+
+  // "Soonest" means nearest to now, which for past events is the most recently
+  // passed — so the order flips when viewing them.
+  const timelineOrder = showPast
+    ? (sortOrder === 'asc' ? 'desc' : 'asc')
+    : sortOrder;
+
+  const sortedApps = sortApplicationsByDeadline(timelineApps, timelineOrder);
   const groupedApps = groupApplicationsByMonth(sortedApps);
+  // groupApplicationsByMonth always orders months oldest-first; reverse for the
+  // past view so the most recent month leads.
+  const monthKeys = showPast
+    ? Object.keys(groupedApps).reverse()
+    : Object.keys(groupedApps);
 
   const nearestAppId = (() => {
     const active = (applications || []).filter(a => a?.deadline && new Date(a.deadline) > new Date() && a.status !== 'rejected');
@@ -383,7 +404,7 @@ export default function TimelineView({
         ) : (
           <>
             {/* Starred / Pinned Section */}
-            {starredApps.length > 0 && selectedPriority !== 'high' && (
+            {starredApps.length > 0 && selectedPriority !== 'high' && !showPast && (
               <div className="mb-8">
                 <div className="flex items-center gap-2 mb-4">
                   <Star size={14} className="fill-amber-400 text-amber-400" />
@@ -409,18 +430,58 @@ export default function TimelineView({
 
             {mainApps.length > 0 && (
               <>
-                {/* Timeline label if favorites are present */}
-                {starredApps.length > 0 && selectedPriority !== 'high' && (
-                  <div className="flex items-center gap-2 mb-6">
-                    <Calendar size={14} className="text-slate-500" />
-                    <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Timeline</h3>
+                {/* Timeline header + past/upcoming switch */}
+                <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    {showPast
+                      ? <History size={14} className="text-slate-500" />
+                      : <Calendar size={14} className="text-slate-500" />}
+                    <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      {showPast ? 'Past Hackathons' : 'Upcoming Timeline'}
+                    </h3>
+                    <span className="px-2 py-0.5 text-[10px] bg-white/[0.06] text-slate-500 rounded-full font-bold">
+                      {timelineApps.length}
+                    </span>
                   </div>
-                )}
 
-                {groupByMonthMode ? (
+                  {pastApps.length > 0 && (
+                    <button
+                      onClick={() => setShowPast(p => !p)}
+                      title={showPast
+                        ? 'Back to upcoming hackathons'
+                        : 'Show hackathons whose deadline has already passed'}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-xl border transition-all cursor-pointer ${
+                        showPast
+                          ? 'bg-indigo-500/[0.12] border-indigo-500/30 text-indigo-300'
+                          : 'bg-white/[0.02] border-white/[0.06] text-slate-500 hover:bg-white/[0.05] hover:text-slate-300'
+                      }`}
+                    >
+                      {showPast ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      <History size={12} />
+                      <span>Past</span>
+                      <span className="px-1.5 py-0.5 text-[9.5px] rounded-full bg-white/[0.07] text-slate-400 font-bold">
+                        {pastApps.length}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                {timelineApps.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center py-16 max-w-sm mx-auto">
+                    <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-3.5">
+                      <Calendar size={20} className="text-slate-600" />
+                    </div>
+                    <h3 className="text-[13px] font-semibold text-slate-300">No upcoming hackathons</h3>
+                    <p className="text-[12px] text-slate-600 mt-1.5 leading-relaxed">
+                      {pastApps.length > 0
+                        ? `Every tracked event has passed. Open Past (${pastApps.length}) to look back.`
+                        : 'Add an event to start building your timeline.'}
+                    </p>
+                  </div>
+                ) : groupByMonthMode ? (
                   <div className="relative pl-5 ml-1" style={{ borderLeft: '1px solid rgba(99,102,241,0.12)' }}>
                     <div className="space-y-10">
-                      {Object.keys(groupedApps).map(monthYear => {
+                      {monthKeys.map(monthYear => {
                         const isExpanded = expandedMonths[monthYear] !== false;
                         const monthApps = groupedApps[monthYear];
                         return (
