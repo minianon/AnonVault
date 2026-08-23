@@ -884,3 +884,40 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
   from { opacity: 0.5; transform: scale(0.72); }
   to   { opacity: 0;   transform: scale(2.6); }
 }
+
+/* ── Access-granted emblem + footer ────────────────────────────────── */
+@keyframes vaultHairline {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes vaultSheenText {
+  from { background-position: -140% 0; }
+  to   { background-position: 240% 0; }
+}
+
+/* Light travelling across the label — replaces the blinking block cursor,
+   which read as a terminal trope rather than a product detail. */
+.vault-sheen-text {
+  background: linear-gradient(
+    100deg,
+    rgba(148, 163, 184, 0.5) 0%,
+    rgba(148, 163, 184, 0.5) 42%,
+    #e8f2fb 50%,
+    rgba(148, 163, 184, 0.5) 58%,
+    rgba(148, 163, 184, 0.5) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: vaultSheenText 2.1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vault-sheen-text {
+    animation: none;
+    -webkit-text-fill-color: rgba(226, 232, 240, 0.8);
+    color: rgba(226, 232, 240, 0.8);
+  }
+}
