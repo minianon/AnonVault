@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { 
   Plus, Search, Tag, Trash2, Edit3, X, Rocket, Menu, Lock, 
   Globe, ExternalLink, Info, GripVertical, ChevronLeft, ChevronRight, 
@@ -685,12 +686,16 @@ export default function ProjectIdeasView({
     }
   };
 
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+  useShortcutHooks({ onNew: handleOpenAdd, searchRef, rootRef });
+
   const processedIdeas = getProcessedIdeas();
   const pinnedIdeas = processedIdeas.filter(idea => pinnedIds.includes(idea.id));
   const regularIdeas = processedIdeas.filter(idea => !pinnedIds.includes(idea.id));
 
   return (
-    <div className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
+    <div ref={rootRef} className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
       <div className="workspace-aurora-glow workspace-glow-1" />
       <div className="workspace-aurora-glow workspace-glow-2" />
 
@@ -728,6 +733,7 @@ export default function ProjectIdeasView({
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           <input
             type="text"
+            ref={searchRef}
             placeholder="Search concepts…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}

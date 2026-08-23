@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { formatDate, getPriorityStyles, getStatusStyles, sortApplicationsByDeadline, groupApplicationsByMonth } from '../utils/helpers';
 import { getHackathonProgress } from '../services/tasks';
+import { useShortcutHooks } from '../utils/useShortcutHooks';
 
 /* ─── Premium Custom Dropdown ─────────────────────────── */
 function CustomDropdown({ value, onChange, options, icon, placeholder }) {
@@ -143,6 +144,10 @@ export default function TimelineView({
   };
 
   const handleOpenAdd = () => { resetForm(); setIsFormOpen(true); };
+
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+  useShortcutHooks({ onNew: handleOpenAdd, searchRef, rootRef });
 
   const handleOpenEdit = (app) => {
     setEditingApp(app);
@@ -294,7 +299,7 @@ export default function TimelineView({
   };
 
   return (
-    <div className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
+    <div ref={rootRef} className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
       <div className="workspace-aurora-glow workspace-glow-1" />
       <div className="workspace-aurora-glow workspace-glow-2" />
 
@@ -333,6 +338,7 @@ export default function TimelineView({
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           <input
             type="text"
+            ref={searchRef}
             placeholder="Search hackathons…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}

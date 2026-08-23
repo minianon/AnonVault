@@ -89,6 +89,19 @@ function ToastItem({ toast, onRemove }) {
         )}
       </div>
 
+      {/* Action — used for undo. Firing it dismisses the toast, so the
+          window to act is exactly the toast's lifetime. */}
+      {toast.action && (
+        <button
+          onClick={() => { toast.action.onClick(); dismiss(); }}
+          className="shrink-0 mt-0.5 px-2.5 py-1 rounded-lg text-[11px] font-bold
+            text-sky-300 bg-sky-500/[0.12] border border-sky-500/25
+            hover:bg-sky-500/[0.2] transition-all cursor-pointer"
+        >
+          {toast.action.label}
+        </button>
+      )}
+
       {/* Dismiss */}
       <button
         onClick={dismiss}
@@ -122,9 +135,11 @@ let _nextId = 1;
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
-  const showToast = useCallback((type, title, message, duration) => {
+  // `action` is optional: { label, onClick }. Used for undo, where the
+  // toast's lifetime is deliberately the whole window to act.
+  const showToast = useCallback((type, title, message, duration, action) => {
     const id = _nextId++;
-    setToasts(prev => [...prev, { id, type, title, message, duration }]);
+    setToasts(prev => [...prev, { id, type, title, message, duration, action }]);
   }, []);
 
   const removeToast = useCallback((id) => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { 
   Search, Star, Plus, Edit3, Trash2, X, Lock, Menu, 
   Tag, Quote, Filter, Hash, ChevronDown, ChevronRight, ExternalLink, Calendar
@@ -133,6 +134,10 @@ export default function QuotesView({
   };
 
   const handleOpenAdd = () => { resetForm(); setIsFormOpen(true); };
+
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+  useShortcutHooks({ onNew: handleOpenAdd, searchRef, rootRef });
 
   const handleOpenEdit = (q) => {
     setEditingQuote(q);
@@ -319,7 +324,7 @@ export default function QuotesView({
   }, [processedQuotes.map(q => q.id).join(',')]);
 
   return (
-    <div className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
+    <div ref={rootRef} className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
       <div className="workspace-aurora-glow workspace-glow-1" />
       <div className="workspace-aurora-glow workspace-glow-2" />
 
@@ -355,6 +360,7 @@ export default function QuotesView({
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           <input
             type="text"
+            ref={searchRef}
             placeholder="Search quotes or authors…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}

@@ -1671,13 +1671,29 @@ function AppInner() {
     }
   };
 
+  // Deletes are immediate and there is no backup, so the toast doubles as
+  // the only safety net: it holds the removed record and puts it back on
+  // demand. Restoring re-inserts rather than un-deleting, so the row comes
+  // back with a new id — fine for undo, but worth knowing.
+  const withUndo = (title, name, restore) =>
+    showToast('warning', title, `"${name}" removed.`, 7000, {
+      label: 'Undo',
+      onClick: () => { restore(); },
+    });
+
   const handleDeleteApplication = async (id) => {
     try {
       const targetApp = applications.find(app => app.id === id);
       const appName = targetApp ? targetApp.name : 'Hackathon';
       await deleteApplication(id);
       setApplications(prev => prev.filter(app => app.id !== id));
-      showToast('warning', 'Hackathon Removed', `"${appName}" has been removed.`);
+      withUndo('Hackathon Removed', appName, () => handleAddApplication({
+        name: targetApp?.name, company: targetApp?.company, link: targetApp?.link,
+        links: targetApp?.links || [], deadline: targetApp?.deadline,
+        priority: targetApp?.priority, status: targetApp?.status,
+        notes: targetApp?.notes, ppi: targetApp?.ppi, travel: targetApp?.travel,
+        onsite: targetApp?.onsite, remote: targetApp?.remote,
+      }));
     } catch (err) {
       console.error('Failed to delete application:', err);
       showToast('error', 'Delete Failed', 'Could not remove the hackathon.');
@@ -1711,9 +1727,14 @@ function AppInner() {
 
   const handleDeleteIdea = async (id) => {
     try {
+      const target = ideas.find(i => i.id === id);
       await deleteIdea(id);
       setIdeas(prev => prev.filter(idea => idea.id !== id));
-      showToast('warning', 'Idea Deleted', 'The idea has been permanently removed.');
+      withUndo('Idea Deleted', target?.title || 'Idea', () => handleAddIdea({
+        title: target?.title, content: target?.content || '',
+        images: target?.images || [], links: target?.links || [],
+        tags: target?.tags || [],
+      }));
     } catch (err) {
       console.error('Failed to delete idea:', err);
       showToast('error', 'Delete Failed', 'Could not remove the idea.');
@@ -1863,9 +1884,13 @@ function AppInner() {
 
   const handleDeleteQuote = async (id) => {
     try {
+      const target = quotes.find(q => q.id === id);
       await deleteQuote(id);
       setQuotes(prev => prev.filter(q => q.id !== id));
-      showToast('warning', 'Quote Removed', 'Quote has been deleted.');
+      withUndo('Quote Removed', (target?.text || 'Quote').slice(0, 40), () => handleAddQuote({
+        text: target?.text, author: target?.author, category: target?.category,
+        tags: target?.tags || [], source: target?.source || '',
+      }));
     } catch (err) {
       console.error('Failed to delete quote:', err);
       showToast('error', 'Delete Failed', 'Could not delete the quote.');
@@ -1892,6 +1917,46 @@ function AppInner() {
   // layer unmounts 700ms later, or the dashboard would be revealed
   // fully-formed by the aperture and only then animate in.
   const tabRevealOn = revealing || !showLockScreen;
+
+  // Single-key shortcuts. Ignored while typing, while any modal is open, and
+  // while the lock screen is up — otherwise "n" would fire mid-sentence in
+  // every text field in the app.
+  useEffect(() => {
+    if (showLockScreen) return;
+
+    const TABS = ['dashboard', 'tasks', 'timeline', 'ideas', 'project-ideas', 'review', 'quotes'];
+
+    const onKey = e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target;
+      const typing = el && (
+        el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ||
+        el.tagName === 'SELECT' || el.isContentEditable
+      );
+      if (typing) return;
+      // A modal or the palette owns the keyboard while it is open.
+      if (document.querySelector('.modal-overlay')) return;
+
+      if (e.key >= '1' && e.key <= '7') {
+        e.preventDefault();
+        setActiveTab(TABS[Number(e.key) - 1]);
+        return;
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        // Broadcast rather than threading a callback through six views.
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('anonvault:new'));
+        return;
+      }
+      if (e.key === '/') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('anonvault:focus-search'));
+      }
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showLockScreen]);
 
   // Cmd/Ctrl+K anywhere in the workspace. Suppressed while the lock screen
   // is up so the palette can never be opened over an unauthorised session.
@@ -2000,8 +2065,10 @@ function AppInner() {
         }}>
         
         {/* Sidebar Navigation Panel */}
-        <Sidebar 
-          activeTab={activeTab} 
+        <Sidebar
+          theme={theme}
+          toggleTheme={toggleTheme}
+          activeTab={activeTab}
           setActiveTab={setActiveTab} 
           stats={stats}
           mobileOpen={mobileMenuOpen}

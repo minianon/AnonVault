@@ -9,6 +9,7 @@ import {
   getTasksForDate, getTasksForDateSync, addTask, updateTask, deleteTask,
   toggleTaskCompletion, toggleSubtaskCompletion
 } from '../services/tasks';
+import { useShortcutHooks } from '../utils/useShortcutHooks';
 
 /* ── helpers ───────────────────────────────────────────── */
 function toDateStr(date) {
@@ -545,7 +546,7 @@ function SectionLabel({ label, count, color = 'text-slate-500', accentColor }) {
 /* ══════════════════════════════════════════════════════════
    MAIN VIEW
 ══════════════════════════════════════════════════════════ */
-export default function TasksView({ theme, toggleTheme, showToast, onTasksChange, tasksVersion, onLock, onMenuToggle, applications, initialDate, onClearInitialDate }) {
+export default function TasksView({ showToast, onTasksChange, tasksVersion, onLock, onMenuToggle, applications, initialDate, onClearInitialDate }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [tasks,        setTasks]        = useState([]);
   const [isFormOpen,   setIsFormOpen]   = useState(false);
@@ -747,6 +748,12 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
   const sortByPriority = arr =>
     [...arr].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2));
 
+  const rootRef = useRef(null);
+  useShortcutHooks({
+    onNew: () => { setEditingTask(null); setIsFormOpen(true); },
+    rootRef,
+  });
+
   const hackathonNames = (applications || []).reduce((acc, a) => {
     if (a && a.id) acc[a.id] = a.name;
     return acc;
@@ -763,7 +770,7 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
   const isToday        = selectedDate === todayStr();
 
   return (
-    <div className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
+    <div ref={rootRef} className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
       <div className="workspace-aurora-glow workspace-glow-1" />
       <div className="workspace-aurora-glow workspace-glow-2" />
 
