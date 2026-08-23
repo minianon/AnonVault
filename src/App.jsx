@@ -20,8 +20,7 @@ import {
   fetchProjectIdeas,
   addProjectIdea,
   updateProjectIdea,
-  deleteProjectIdea,
-  getSupabaseClient
+  deleteProjectIdea
 } from './services/supabase';
 import { fetchQuotes, addQuote, updateQuote, deleteQuote } from './services/quotes';
 import { getTasksForDateSync, loadAllTasks } from './services/tasks';
@@ -78,6 +77,7 @@ class ErrorBoundary extends React.Component {
    loadData writes APPS_CACHE_KEY for the next unlock to read; the very
    first unlock on a device shows 0 there.                            */
 const APPS_CACHE_KEY = 'anonvault_applications_cache';
+const CONCEPTS_CACHE_KEY = 'anonvault_concepts_cache';
 
 function computeBriefing() {
   const out = { tasksToday: 0, dueThisWeek: 0, concepts: 0, doneToday: 0, totalToday: 0 };
@@ -102,9 +102,12 @@ function computeBriefing() {
   } catch { /* leave at 0 */ }
 
   try {
-    const raw = localStorage.getItem('anonvault_project_ideas');
-    const concepts = raw ? JSON.parse(raw) : [];
-    out.concepts = Array.isArray(concepts) ? concepts.length : 0;
+    // Its own cache rather than 'anonvault_project_ideas': that key is only
+    // written on the localStorage fallback path, so a cloud-synced session
+    // never populates it and the tile would read 0 forever.
+    const raw = localStorage.getItem(CONCEPTS_CACHE_KEY);
+    const n = raw ? parseInt(raw, 10) : 0;
+    out.concepts = Number.isFinite(n) ? n : 0;
   } catch { /* leave at 0 */ }
 
   return out;
@@ -169,10 +172,13 @@ function AccessGranted({ onComplete }) {
   const [brief] = useState(computeBriefing);
   // Real state, not decoration: whether this session is talking to Supabase
   // or running off the local cache.
-  const [session] = useState(() => ({
-    sync: getSupabaseClient() ? 'Cloud sync' : 'Local vault',
-    at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  }));
+  const [session] = useState(() => {
+    const now = new Date();
+    return {
+      day: now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
+      at: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+  });
 
   // Ring reads today's completion rather than sweeping decoratively. With
   // nothing scheduled there is no ratio to show, so it reads as a full,
@@ -440,7 +446,7 @@ function AccessGranted({ onComplete }) {
               <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.06)' }} />
               <BriefingTile
                 value={brief.dueThisWeek}
-                label={'due\nthis week'}
+                label={'hackathons\nthis week'}
                 accent="#fbbf24"
                 delay={260}
                 dimmed={brief.dueThisWeek === 0}
@@ -448,7 +454,7 @@ function AccessGranted({ onComplete }) {
               <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.06)' }} />
               <BriefingTile
                 value={brief.concepts}
-                label={'concepts'}
+                label={'project\nideas'}
                 accent="#34d399"
                 delay={340}
                 dimmed={brief.concepts === 0}
@@ -471,18 +477,31 @@ function AccessGranted({ onComplete }) {
                 Entering Workspace
               </span>
 
-              {/* Hairline fills in step with the ring — one clock, two
-                  read-outs, instead of a cursor blinking out of time. */}
+              {/* Fills in step with the dial — one clock, two read-outs,
+                  instead of a cursor blinking out of time. Sky rather than
+                  emerald so it belongs to the same accent as the mark. */}
               <div style={{
-                width: '100%', height: 1, borderRadius: 1, overflow: 'hidden',
-                background: 'rgba(255, 255, 255, 0.07)',
+                position: 'relative',
+                width: '100%', height: 3, borderRadius: 99,
+                background: 'rgba(255, 255, 255, 0.055)',
+                boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.03)',
               }}>
-                <div style={{
-                  height: '100%', width: '100%',
+                <div className="vault-bar-fill" style={{
+                  position: 'absolute', inset: 0, borderRadius: 99,
                   transformOrigin: 'left center',
-                  background: 'linear-gradient(90deg, rgba(52, 211, 153, 0.12), #34d399)',
-                  boxShadow: '0 0 8px rgba(52, 211, 153, 0.5)',
+                  background: 'linear-gradient(90deg, rgba(14, 165, 233, 0.3) 0%, #0ea5e9 45%, #7dd3fc 100%)',
+                  boxShadow: '0 0 10px rgba(56, 189, 248, 0.45)',
                   animation: 'vaultHairline 0.86s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
+                }} />
+                {/* Leading head, kept in sync with the fill by sharing its
+                    duration, delay and easing. */}
+                <div className="vault-bar-head" style={{
+                  position: 'absolute', top: '50%',
+                  width: 7, height: 7, marginTop: -3.5, marginLeft: -3.5,
+                  borderRadius: '50%',
+                  background: '#e0f2fe',
+                  boxShadow: '0 0 10px 2px rgba(56, 189, 248, 0.7)',
+                  animation: 'vaultHairlineHead 0.86s cubic-bezier(0.4, 0, 0.2, 1) 0.34s both',
                 }} />
               </div>
 
@@ -494,7 +513,7 @@ function AccessGranted({ onComplete }) {
                 fontFamily: "'JetBrains Mono', monospace",
                 color: 'rgba(148, 163, 184, 0.36)',
               }}>
-                {session.sync} &middot; {session.at}
+                {session.day} &middot; {session.at}
               </span>
             </div>
           </div>
@@ -1470,6 +1489,9 @@ function AppInner() {
         setProjectIdeas(pIdeas);
         setProjectIdeasCount(pIdeas.length);
         setUsingLocalProjectIdeas(false);
+        try {
+          localStorage.setItem(CONCEPTS_CACHE_KEY, String(pIdeas.length));
+        } catch { /* briefing tile just stays at its last value */ }
       } catch (err) {
         console.warn('Error fetching project ideas from Supabase, falling back to LocalStorage:', err);
         let stored = [];
@@ -1510,6 +1532,9 @@ function AppInner() {
             }
           ];
           localStorage.setItem('anonvault_project_ideas', JSON.stringify(stored));
+          try {
+            localStorage.setItem(CONCEPTS_CACHE_KEY, String(stored.length));
+          } catch { /* briefing tile just stays at its last value */ }
         }
         setProjectIdeas(stored);
         setProjectIdeasCount(stored.length);
