@@ -177,6 +177,7 @@ export async function addTask(task) {
       .filter(st => st.title),
     completed: false,
     priority: task.priority || 'medium',
+    hackathon_id: task.hackathon_id || null,
   };
 
   if (useSupabase()) {
@@ -424,4 +425,135 @@ export async function toggleSubtaskCompletion(task, subtaskId, dateStr) {
     }
     return false;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   History aggregates for the Review section.
+
+   All of these read the localStorage caches synchronously. The
+   completion log has been accumulating a row per (task, date) since
+   the app was first used and nothing has ever read more than a single
+   day of it — these are the first functions that look across dates.
+
+   A recurring task only counts on days its recurrence actually covers,
+   and never before the task was created: without that, adding a task
+   today would retroactively show as months of missed days.
+   ══════════════════════════════════════════════════════════════ */
+
+function dateStrOffset(days) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+function createdOnOrBefore(task, dateStr) {
+  if (!task.created_at) return true;
+  const created = new Date(task.created_at);
+  if (Number.isNaN(created.getTime())) return true;
+  const y = created.getFullYear();
+  const m = String(created.getMonth() + 1).padStart(2, '0');
+  const d = String(created.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}` <= dateStr;
+}
+
+function isDoneOn(task, dateStr, completions) {
+  return task.is_recurring
+    ? !!(completions[task.id]?.[dateStr])
+    : !!task.completed;
+}
+
+/** Per-day scheduled/completed counts, oldest first, ending today. */
+export function getCompletionHistory(days = 30) {
+  const tasks = loadLocalTasks();
+  const completions = loadCompletions();
+  const out = [];
+
+  for (let i = -(days - 1); i <= 0; i++) {
+    const date = dateStrOffset(i);
+    const due = tasks.filter(t => taskAppliesOnDate(t, date) && createdOnOrBefore(t, date));
+    const done = due.filter(t => isDoneOn(t, date, completions));
+    out.push({
+      date,
+      scheduled: due.length,
+      completed: done.length,
+      rate: due.length ? done.length / due.length : null,
+    });
+  }
+  return out;
+}
+
+/** Per-recurring-task reliability over its scheduled days in the window. */
+export function getTaskReliability(days = 30) {
+  const tasks = loadLocalTasks().filter(t => t.is_recurring);
+  const completions = loadCompletions();
+
+  return tasks
+    .map(t => {
+      let scheduled = 0;
+      let completed = 0;
+      for (let i = -(days - 1); i <= 0; i++) {
+        const date = dateStrOffset(i);
+        if (!taskAppliesOnDate(t, date) || !createdOnOrBefore(t, date)) continue;
+        scheduled++;
+        if (isDoneOn(t, date, completions)) completed++;
+      }
+      return {
+        id: t.id,
+        title: t.title,
+        recurrence: t.recurrence,
+        priority: t.priority,
+        scheduled,
+        completed,
+        rate: scheduled ? completed / scheduled : null,
+      };
+    })
+    .filter(r => r.scheduled > 0)
+    .sort((a, b) => a.rate - b.rate);
+}
+
+/**
+ * Current and longest run of clean days — every scheduled task completed.
+ * Days with nothing scheduled are skipped rather than breaking the run: a
+ * weekends-only schedule should not lose its streak every Monday.
+ */
+export function getStreaks(days = 180) {
+  const tasks = loadLocalTasks();
+  const completions = loadCompletions();
+
+  let longest = 0;
+  let run = 0;
+
+  for (let i = -(days - 1); i <= 0; i++) {
+    const date = dateStrOffset(i);
+    const due = tasks.filter(t => taskAppliesOnDate(t, date) && createdOnOrBefore(t, date));
+    if (due.length === 0) continue;
+
+    if (due.every(t => isDoneOn(t, date, completions))) {
+      run++;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+    }
+  }
+
+  // The loop ends on today, so whatever run it finished with IS the current
+  // one. A day still in progress simply has not joined the run yet, rather
+  // than reading as a break.
+  return { current: run, longest };
+}
+
+/** Days since the earliest task was created — a simple "day N" counter. */
+export function getDayCount() {
+  const tasks = loadLocalTasks();
+  const stamps = tasks
+    .map(t => t.created_at && new Date(t.created_at).getTime())
+    .filter(n => n && !Number.isNaN(n));
+  if (!stamps.length) return 1;
+  const first = Math.min(...stamps);
+  const dayMs = 86400000;
+  return Math.max(1, Math.round((Date.now() - first) / dayMs) + 1);
 }

@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS public.tasks (
     date TEXT,
     subtasks JSONB DEFAULT '[]'::jsonb,
     completed BOOLEAN DEFAULT false,
+    -- Optional owner: lets a hackathon carry its own checklist.
+    hackathon_id UUID REFERENCES public.applications(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -95,6 +97,9 @@ CREATE TABLE IF NOT EXISTS public.project_ideas (
     images JSONB DEFAULT '[]'::jsonb,
     links JSONB DEFAULT '[]'::jsonb,
     tags TEXT[] DEFAULT '{}',
+    -- backlog | building | shipped | parked
+    status TEXT DEFAULT 'backlog',
+    promoted_from UUID REFERENCES public.ideas(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
