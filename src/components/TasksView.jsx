@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Edit3, X, ChevronDown,
   Check, Sun, Moon, RotateCcw,
   ChevronLeft, ChevronRight as ChevronRightIcon, Repeat2,
-  ListChecks, Sparkles, Minus, ArrowDown, EyeOff, Lock, Menu
+  ListChecks, Sparkles, Minus, ArrowDown, EyeOff, Lock, Menu, CheckCheck
 } from 'lucide-react';
 import {
   getTasksForDate, addTask, updateTask, deleteTask,
@@ -519,6 +519,7 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
   const [editingTask,  setEditingTask]  = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [busy,         setBusy]         = useState(false);
+  const [markingAll,   setMarkingAll]   = useState(false);
 
   const [cancelledMap, setCancelledMap] = useState(() => {
     try {
@@ -589,6 +590,34 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
       await refresh();
     }
   }, [selectedDate, refresh, showToast]);
+
+  // ── mark every pending (non-cancelled) task for this day as completed ──
+  const handleMarkAllComplete = useCallback(async () => {
+    const pending = tasks.filter(t => !cancelledMap[t.id]?.[selectedDate] && !t.completed);
+    if (pending.length === 0) return;
+
+    setMarkingAll(true);
+
+    // Optimistic Update
+    const pendingIds = new Set(pending.map(t => t.id));
+    setTasks(prev => prev.map(t => pendingIds.has(t.id)
+      ? { ...t, completed: true, subtasks: (t.subtasks || []).map(st => ({ ...st, completed: true })) }
+      : t
+    ));
+
+    try {
+      for (const task of pending) {
+        await toggleTaskCompletion(task, selectedDate);
+      }
+      showToast?.('success', 'All Done',
+        `${pending.length} task${pending.length > 1 ? 's' : ''} marked as completed.`);
+    } catch (err) {
+      console.error('Failed to mark all tasks complete:', err);
+      showToast?.('error', 'Error', 'Could not mark all tasks complete. Rolling back.');
+    }
+    await refresh();
+    setMarkingAll(false);
+  }, [tasks, cancelledMap, selectedDate, refresh, showToast]);
 
   const handleToggleSub = useCallback(async (task, sid) => {
     // Optimistic Update
@@ -740,6 +769,20 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
 
         {totalCount > 0 && (
           <div className="flex items-center gap-3 shrink-0">
+            {allPending.length > 0 && (
+              <button
+                onClick={handleMarkAllComplete}
+                disabled={markingAll}
+                title={`Mark all ${allPending.length} remaining task${allPending.length > 1 ? 's' : ''} as completed`}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold
+                  text-emerald-400 border border-emerald-500/25 bg-emerald-500/[0.07]
+                  hover:bg-emerald-500/[0.13] hover:text-emerald-300 rounded-xl transition-all
+                  cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                <CheckCheck size={11} />
+                <span className="hidden sm:inline">{markingAll ? 'Marking…' : 'Mark All Done'}</span>
+                <span className="sm:hidden">{markingAll ? '…' : 'All Done'}</span>
+              </button>
+            )}
             <div className="hidden sm:flex items-center gap-2">
               <div className="w-20 h-1 bg-white/[0.06] rounded-full overflow-hidden">
                 <div
