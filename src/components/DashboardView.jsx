@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { 
   LayoutDashboard, CheckSquare, Star, Quote, Calendar, AlertTriangle, 
   MapPin, Clock, ExternalLink, ChevronRight, Tag, Lightbulb, Code2, LinkIcon,
-  Circle, CheckCircle2, ChevronDown, Repeat2, CheckCheck, Flame, TrendingUp, Rocket, ListChecks, BarChart3
+  Circle, CheckCircle2, ChevronDown, Repeat2, CheckCheck, Flame, TrendingUp, Rocket, ListChecks, CalendarClock
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, toggleTaskCompletion, toggleSubtaskCompletion,
@@ -345,6 +345,15 @@ export default function DashboardView({
   }, [tasksVersion]);
 
   const building = (projectIdeas || []).filter(p => p?.status === 'building').length;
+
+  // Deadlines inside a week. The strip covered tasks twice and projects once,
+  // and nothing for hackathons — this fills that gap with a real number
+  // rather than a button dressed up as a stat.
+  const dueThisWeek = (applications || []).filter(a => {
+    if (!a?.deadline || a.status === 'rejected') return false;
+    const days = getDaysRemaining(a.deadline);
+    return days >= 0 && days <= 7;
+  }).length;
   const hackProgress = useMemo(
     () => getHackathonProgress(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -452,7 +461,7 @@ export default function DashboardView({
             { icon: Flame, label: 'Streak', value: pulse.streak, sub: pulse.streak === 1 ? 'clean day' : 'clean days', accent: '#fb923c', tab: 'review' },
             { icon: TrendingUp, label: '7-day rate', value: pulse.weekRate === null ? '—' : pulse.weekRate + '%', sub: 'completed', accent: '#38bdf8', tab: 'review' },
             { icon: Rocket, label: 'Building', value: building, sub: 'concepts', accent: '#818cf8', tab: 'project-ideas' },
-            { icon: BarChart3, label: 'Review', value: 'Open', sub: 'full history', accent: '#a78bfa', tab: 'review' },
+            { icon: CalendarClock, label: 'Due this week', value: dueThisWeek, sub: dueThisWeek === 1 ? 'hackathon' : 'hackathons', accent: '#fbbf24', tab: 'timeline' },
           ].map(card => (
             <button key={card.label}
               onClick={() => setActiveTab(card.tab)}
