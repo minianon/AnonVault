@@ -7,6 +7,16 @@ import {
 } from 'lucide-react';
 
 /* ─── tiny helpers ─────────────────────────────────────── */
+/* Project lifecycle. Without this, concepts were a pile with no exit —
+   captured, then nothing. */
+const PROJECT_STATUS = {
+  backlog:  { label: 'Backlog',  color: '#64748b', bg: 'rgba(100,116,139,0.12)', border: 'rgba(100,116,139,0.3)' },
+  building: { label: 'Building', color: '#38bdf8', bg: 'rgba(56,189,248,0.12)',  border: 'rgba(56,189,248,0.32)' },
+  shipped:  { label: 'Shipped',  color: '#34d399', bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.32)' },
+  parked:   { label: 'Parked',   color: '#a1a1aa', bg: 'rgba(161,161,170,0.10)', border: 'rgba(161,161,170,0.24)' },
+};
+const STATUS_ORDER = ['backlog', 'building', 'shipped', 'parked'];
+
 function isValidUrl(str) {
   try { new URL(str); return true; } catch { return false; }
 }
@@ -242,6 +252,7 @@ export default function ProjectIdeasView({
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [sortBy, setSortBy] = useState(() => localStorage.getItem('anonvault_project_ideas_sortby') || 'custom');
 
   const [pinnedIds, setPinnedIds] = useState(() => {
@@ -628,8 +639,26 @@ export default function ProjectIdeasView({
         (idea.content || '').toLowerCase().includes(q) ||
         (idea.tags || []).some(t => t.toLowerCase().includes(q));
       const matchesTag = !selectedTag || (idea.tags && idea.tags.includes(selectedTag));
-      return matchesSearch && matchesTag;
+      // Untagged rows count as backlog, so nothing vanishes behind a filter
+      // just because it predates the pipeline.
+      const matchesStatus = !selectedStatus || (idea.status || 'backlog') === selectedStatus;
+      return matchesSearch && matchesTag && matchesStatus;
     });
+  };
+
+  // Cycles backlog -> building -> shipped -> parked -> backlog. A one-click
+  // move keeps the pipeline usable; burying it in the edit modal would mean
+  // nobody ever updates it.
+  const advanceStatus = async idea => {
+    const current = idea.status || 'backlog';
+    const next = STATUS_ORDER[(STATUS_ORDER.indexOf(current) + 1) % STATUS_ORDER.length];
+    try {
+      if (onUpdate) await onUpdate(idea.id, { ...idea, status: next });
+      showToast?.('success', PROJECT_STATUS[next].label, `"${idea.title}" moved to ${PROJECT_STATUS[next].label}.`);
+    } catch (err) {
+      console.error('Failed to change project stage:', err);
+      showToast?.('error', 'Update Failed', 'Could not change the stage.');
+    }
   };
 
   const processedIdeas = getProcessedIdeas();
@@ -703,6 +732,17 @@ export default function ProjectIdeasView({
           />
 
           <CustomDropdown
+            value={selectedStatus}
+            onChange={setSelectedStatus}
+            options={[
+              { value: '', label: 'All Stages' },
+              ...STATUS_ORDER.map(k => ({ value: k, label: PROJECT_STATUS[k].label })),
+            ]}
+            icon={<Rocket size={11} className="text-sky-400/80" />}
+            placeholder="All Stages"
+          />
+
+          <CustomDropdown
             value={sortBy}
             onChange={setSortBy}
             options={sortOptions}
@@ -753,6 +793,7 @@ export default function ProjectIdeasView({
                         setHoveredDragId={setHoveredDragId}
                         isPinned={true}
                         onTogglePin={togglePin}
+                        onAdvanceStatus={advanceStatus}
                       />
                     </div>
                   ))}
@@ -798,6 +839,7 @@ export default function ProjectIdeasView({
                         setHoveredDragId={setHoveredDragId}
                         isPinned={false}
                         onTogglePin={togglePin}
+                        onAdvanceStatus={advanceStatus}
                       />
                     </div>
                   ))}
@@ -1163,7 +1205,8 @@ function IdeaDetailModal({ idea, onClose, onEdit }) {
   );
 }
 
-function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin }) {
+function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, isFilteringOrSearching, setHoveredDragId, isPinned, onTogglePin, onAdvanceStatus }) {
+  const status = PROJECT_STATUS[idea.status || 'backlog'] || PROJECT_STATUS.backlog;
   const images = idea.images || [];
   const links  = idea.links || [];
 
@@ -1271,15 +1314,21 @@ function IdeaCard({ idea, sortBy, onEdit, onDelete, onSelectTag, onViewDetails, 
           </div>
         )}
 
-        {idea.tags && idea.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-2.5 border-t border-white/[0.06]"
-               onClick={e => e.stopPropagation()}
-               onDragStart={e => e.stopPropagation()}>
-            {idea.tags.map(tag => (
-              <button key={tag} onClick={() => onSelectTag(tag)} className="tag-pill cursor-pointer bg-indigo-500/15 border-indigo-500/20 text-indigo-300">#{tag}</button>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-white/[0.06]"
+             onClick={e => e.stopPropagation()}
+             onDragStart={e => e.stopPropagation()}>
+          <button
+            onClick={() => onAdvanceStatus && onAdvanceStatus(idea)}
+            title="Click to move to the next stage"
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded-full cursor-pointer transition-all hover:brightness-125"
+            style={{ background: status.bg, color: status.color, border: '1px solid ' + status.border }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: status.color }} />
+            {status.label}
+          </button>
+          {(idea.tags || []).map(tag => (
+            <button key={tag} onClick={() => onSelectTag(tag)} className="tag-pill cursor-pointer bg-indigo-500/15 border-indigo-500/20 text-indigo-300">#{tag}</button>
+          ))}
+        </div>
       </div>
     </article>
   );
