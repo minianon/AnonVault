@@ -36,6 +36,18 @@ export function getNotedDates() {
 }
 
 /**
+ * Notes for a list of dates, newest first, empty ones dropped.
+ * One cache read rather than one per day.
+ */
+export function getNotes(dateStrs) {
+  const all = loadAll();
+  return dateStrs
+    .map(date => ({ date, note: all[date] || '' }))
+    .filter(entry => entry.note.trim())
+    .reverse();
+}
+
+/**
  * Write locally, then mirror upstream. Never throws: a failed mirror is
  * logged and ignored, because losing the note would be worse than being
  * briefly out of sync.

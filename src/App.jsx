@@ -8,6 +8,7 @@ import QuotesView from './components/QuotesView';
 import DashboardView from './components/DashboardView';
 import ReviewView from './components/ReviewView';
 import CommandPalette from './components/CommandPalette';
+import TagsView from './components/TagsView';
 import { ToastProvider, useToast } from './components/Toast';
 import { Lock, ShieldAlert, Cpu, Delete } from 'lucide-react';
 import { 
@@ -1913,7 +1914,7 @@ function AppInner() {
   useEffect(() => {
     if (showLockScreen) return;
 
-    const TABS = ['dashboard', 'tasks', 'timeline', 'ideas', 'project-ideas', 'review', 'quotes'];
+    const TABS = ['dashboard', 'tasks', 'timeline', 'ideas', 'project-ideas', 'review', 'quotes', 'tags'];
 
     const onKey = e => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1926,7 +1927,7 @@ function AppInner() {
       // A modal or the palette owns the keyboard while it is open.
       if (document.querySelector('.modal-overlay')) return;
 
-      if (e.key >= '1' && e.key <= '7') {
+      if (e.key >= '1' && e.key <= '8') {
         e.preventDefault();
         setActiveTab(TABS[Number(e.key) - 1]);
         return;
@@ -2229,6 +2230,25 @@ function AppInner() {
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
+                />
+              </div>
+
+              {/* Tags Workspace */}
+              <div
+                data-tabreveal={activeTab === 'tags' && tabRevealOn ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
+                activeTab === 'tags'
+                  ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
+                  : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
+              }`}>
+                <TagsView
+                  ideas={ideas}
+                  projectIdeas={projectIdeas}
+                  onSelectIdea={id => { setInitIdeaId(id); setActiveTab('ideas'); }}
+                  onSelectProject={id => { setInitProjectId(id); setActiveTab('project-ideas'); }}
+                  onLock={handleLock}
+                  onMenuToggle={() => setMobileMenuOpen(true)}
+                  setActiveTab={setActiveTab}
                 />
               </div>
             </div>
