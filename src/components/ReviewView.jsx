@@ -54,7 +54,7 @@ function StatCard({ icon: Icon, label, value, sub, accent }) {
 }
 
 /* ── Daily completion bars ──────────────────────────────── */
-function HistoryChart({ history }) {
+function HistoryChart({ history, onPickDate }) {
   // A day with nothing scheduled is drawn as a flat marker rather than a
   // zero bar — no work due is not the same as work missed.
   return (
@@ -64,8 +64,10 @@ function HistoryChart({ history }) {
         const h = empty ? 3 : Math.max(4, Math.round((d.completed / d.scheduled) * 100));
         const full = !empty && d.completed === d.scheduled;
         return (
-          <div key={d.date} className="flex-1 flex flex-col justify-end group/bar relative"
-            style={{ minWidth: 3 }}>
+          <button key={d.date}
+            onClick={() => onPickDate && onPickDate(d.date)}
+            className="flex-1 flex flex-col justify-end group/bar relative cursor-pointer"
+            style={{ minWidth: 3, background: 'none', border: 'none', padding: 0 }}>
             <div
               title={empty
                 ? d.date + ' — nothing scheduled'
@@ -83,7 +85,7 @@ function HistoryChart({ history }) {
               }}
               className="hover:!opacity-100"
             />
-          </div>
+          </button>
         );
       })}
     </div>
@@ -132,7 +134,7 @@ function SectionHead({ icon: Icon, title, hint }) {
   );
 }
 
-export default function ReviewView({ applications, projectIdeas, onLock, onMenuToggle, setActiveTab }) {
+export default function ReviewView({ applications, projectIdeas, onLock, onMenuToggle, setActiveTab, onPickDate }) {
   const [windowDays, setWindowDays] = useState(30);
 
   // Recomputed only when the window changes. These read the localStorage
@@ -234,11 +236,11 @@ export default function ReviewView({ applications, projectIdeas, onLock, onMenuT
         {/* Daily bars */}
         <div>
           <SectionHead icon={CalendarDays} title="Daily completion"
-            hint={`last ${windowDays} days · oldest left`} />
+            hint={`last ${windowDays} days · click a day to open it`} />
           {hasHistory ? (
             <div className="rounded-2xl p-5"
               style={{ background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <HistoryChart history={history} />
+              <HistoryChart history={history} onPickDate={onPickDate} />
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.04]">
                 <span className="text-[10px] font-semibold text-slate-700">{history[0]?.date}</span>
                 <div className="flex items-center gap-3 text-[9.5px] font-bold uppercase tracking-wider">

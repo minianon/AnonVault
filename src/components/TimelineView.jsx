@@ -82,7 +82,8 @@ export default function TimelineView({
   initialSelectedAppId,
   onClearInitialSelectedApp,
   tasksVersion,
-  setActiveTab
+  setActiveTab,
+  onCreateChecklist
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -434,6 +435,7 @@ export default function TimelineView({
                       onUpdate={onUpdate}
                       progress={hackathonProgress[app.id]}
                       onOpenChecklist={() => setActiveTab && setActiveTab('tasks')}
+                      onCreateChecklist={onCreateChecklist}
                     />
                   ))}
                 </div>
@@ -516,7 +518,7 @@ export default function TimelineView({
                                 {monthApps.map(app => (
                                   <div key={app.id} className="relative">
                                     <TimelineNodeDot app={app} />
-                                    <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} progress={hackathonProgress[app.id]} onOpenChecklist={() => setActiveTab && setActiveTab('tasks')} />
+                                    <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} progress={hackathonProgress[app.id]} onOpenChecklist={() => setActiveTab && setActiveTab('tasks')} onCreateChecklist={onCreateChecklist} />
                                   </div>
                                 ))}
                               </div>
@@ -531,7 +533,7 @@ export default function TimelineView({
                     {sortedApps.map(app => (
                       <div key={app.id} className="relative">
                         <TimelineNodeDot app={app} />
-                        <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} progress={hackathonProgress[app.id]} onOpenChecklist={() => setActiveTab && setActiveTab('tasks')} />
+                        <HackathonCard app={app} isNearest={app.id===nearestAppId} onEdit={handleOpenEdit} onDelete={handleDeleteClick} onViewDetails={setSelectedAppDetails} onUpdate={onUpdate} progress={hackathonProgress[app.id]} onOpenChecklist={() => setActiveTab && setActiveTab('tasks')} onCreateChecklist={onCreateChecklist} />
                       </div>
                     ))}
                   </div>
@@ -848,7 +850,7 @@ function InfoRow({ icon, label, children }) {
 }
 
 /* ── HACKATHON CARD ── */
-function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpdate, progress, onOpenChecklist }) {
+function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpdate, progress, onOpenChecklist, onCreateChecklist }) {
   const priority = getPriorityStyles(app.priority);
   const status = getStatusStyles(app.status);
 
@@ -940,8 +942,23 @@ function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpda
               )}
             </div>
 
-            {/* Checklist this hackathon owns. Only shown once steps exist, so
-                cards for untouched entries are unchanged. */}
+            {/* No steps yet — offer the template. Without this you would
+                retype the same six steps per hackathon, and after the second
+                one you would stop bothering. */}
+            {(!progress || progress.total === 0) && (
+              <button
+                onClick={e => { e.stopPropagation(); onCreateChecklist && onCreateChecklist(app); }}
+                title="Create the standard hackathon checklist"
+                className="mt-3 w-full flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl cursor-pointer
+                  text-[10px] font-bold text-slate-500 hover:text-sky-300
+                  bg-white/[0.015] border border-dashed border-white/[0.08]
+                  hover:bg-sky-500/[0.05] hover:border-sky-500/25 transition-all">
+                <ListChecks size={10} />
+                Add checklist
+              </button>
+            )}
+
+            {/* Checklist this hackathon owns. */}
             {progress && progress.total > 0 && (
               <button
                 onClick={e => { e.stopPropagation(); onOpenChecklist && onOpenChecklist(); }}

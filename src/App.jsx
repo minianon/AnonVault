@@ -1468,6 +1468,7 @@ function AppInner() {
   const [initIdeaId, setInitIdeaId] = useState(null);
   const [initProjectId, setInitProjectId] = useState(null);
   const [initHackathonId, setInitHackathonId] = useState(null);
+  const [initTaskDate, setInitTaskDate] = useState(null);
   const didSyncRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -1721,6 +1722,13 @@ function AppInner() {
 
   // --- Project Ideas Handlers ---
 
+  // Which vault ideas already became concepts. Derived rather than stored:
+  // promoted_from on the concept is the single source of truth.
+  const promotedMap = (projectIdeas || []).reduce((acc, p) => {
+    if (p && p.promoted_from) acc[p.promoted_from] = p.id;
+    return acc;
+  }, {});
+
   const handlePromoteToProject = async idea => {
     if (!idea) return;
     try {
@@ -1903,6 +1911,42 @@ function AppInner() {
   // palette is open, and cheap enough not to warrant caching.
   const paletteTasks = paletteOpen ? getTasksForDateSync(todayDateStr()) : [];
 
+  // The steps every hackathon needs. Kept here rather than in the Timeline so
+  // it is one list to edit, not one per call site.
+  const HACKATHON_STEPS = [
+    'Register / submit application',
+    'Form the team',
+    'Lock the idea',
+    'Build the MVP',
+    'Record the demo video',
+    'Submit before the deadline',
+  ];
+
+  const handleCreateChecklist = async app => {
+    if (!app) return;
+    try {
+      // Sequential rather than parallel: each addTask read-modify-writes the
+      // same localStorage key, so concurrent writes would drop steps.
+      for (const step of HACKATHON_STEPS) {
+        await addTask({
+          title: step,
+          is_recurring: false,
+          date: todayDateStr(),
+          priority: 'medium',
+          subtasks: [],
+          hackathon_id: app.id,
+        });
+      }
+      refreshPendingTasks();
+      showToast('success', 'Checklist Added',
+        `${HACKATHON_STEPS.length} steps created for "${app.name}".`);
+    } catch (err) {
+      console.error('Failed to create hackathon checklist:', err);
+      showToast('error', 'Failed',
+        'Could not create the checklist. If this database predates the migration, run supabase/migrations/001 first.');
+    }
+  };
+
   const handleQuickAddTask = async title => {
     if (!title) return;
     try {
@@ -2023,6 +2067,7 @@ function AppInner() {
                   onMenuToggle={() => setMobileMenuOpen(true)}
                   tasksVersion={tasksVersion}
                   setActiveTab={setActiveTab}
+                  onCreateChecklist={handleCreateChecklist}
                   initialSelectedAppId={initHackathonId}
                   onClearInitialSelectedApp={() => setInitHackathonId(null)}
                 />
@@ -2047,6 +2092,8 @@ function AppInner() {
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
                   onPromoteToProject={handlePromoteToProject}
+                  promotedMap={promotedMap}
+                  onOpenConcept={id => { setInitProjectId(id); setActiveTab('project-ideas'); }}
                   initialSelectedIdeaId={initIdeaId}
                   onClearInitialSelectedIdea={() => setInitIdeaId(null)}
                 />
@@ -2062,6 +2109,8 @@ function AppInner() {
               }`}>
                 <TasksView
                   applications={applications}
+                  initialDate={initTaskDate}
+                  onClearInitialDate={() => setInitTaskDate(null)}
                   showToast={showToast}
                   onTasksChange={refreshPendingTasks}
                   tasksVersion={tasksVersion}
@@ -2108,6 +2157,7 @@ function AppInner() {
                   onLock={handleLock}
                   onMenuToggle={() => setMobileMenuOpen(true)}
                   setActiveTab={setActiveTab}
+                  onPickDate={date => { setInitTaskDate(date); setActiveTab('tasks'); }}
                 />
               </div>
 
