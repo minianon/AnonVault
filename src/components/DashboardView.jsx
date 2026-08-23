@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   LayoutDashboard, CheckSquare, Star, Quote, Calendar, AlertTriangle, 
   MapPin, Clock, ExternalLink, ChevronRight, Tag, Lightbulb, Code2, LinkIcon,
-  Circle, CheckCircle2, ChevronDown, Repeat2
+  Circle, CheckCircle2, ChevronDown, Repeat2, CheckCheck
 } from 'lucide-react';
 import { getTasksForDate, toggleTaskCompletion, toggleSubtaskCompletion } from '../services/tasks';
 import { formatDate, getStatusStyles } from '../utils/helpers';
@@ -198,6 +198,7 @@ export default function DashboardView({
   projectIdeas, 
   quotes,
   onTasksChange,
+  tasksVersion,
   setActiveTab,
   onMenuToggle,
   onSelectIdea,
@@ -206,6 +207,7 @@ export default function DashboardView({
 }) {
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
   const [todayStr, setTodayStr] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -222,22 +224,32 @@ export default function DashboardView({
   }, []);
 
   // 2. Load today's tasks
-  const loadTodayTasks = useCallback(async () => {
+  const loadTodayTasks = useCallback(async (showSpinner = true) => {
     if (!todayStr) return;
-    setTasksLoading(true);
+    if (showSpinner) setTasksLoading(true);
     try {
       const list = await getTasksForDate(todayStr);
       setTasks(list);
     } catch (err) {
       console.error('Failed to load today tasks:', err);
     } finally {
-      setTasksLoading(false);
+      if (showSpinner) setTasksLoading(false);
     }
   }, [todayStr]);
 
   useEffect(() => {
     loadTodayTasks();
   }, [loadTodayTasks]);
+
+  // Refetch when tasks are mutated anywhere (e.g. the Checklist tab). Skips the
+  // first run so it does not duplicate the mount fetch above, and refetches
+  // without the spinner so the widget does not flash on every toggle.
+  const seenVersion = useRef(tasksVersion);
+  useEffect(() => {
+    if (seenVersion.current === tasksVersion) return;
+    seenVersion.current = tasksVersion;
+    loadTodayTasks(false);
+  }, [tasksVersion, loadTodayTasks]);
 
   // 3. Handle task toggles
   const handleToggleTask = async (task) => {
@@ -267,6 +279,31 @@ export default function DashboardView({
     } catch (err) {
       console.error('Failed to toggle subtask:', err);
     }
+  };
+
+  // 3b. Mark every remaining task for today as completed
+  //     (pendingCount is already derived further down, just before the return)
+  const handleMarkAllComplete = async () => {
+    const pending = tasks.filter(t => !t.completed);
+    if (pending.length === 0) return;
+
+    setMarkingAll(true);
+    setTasks(prev => prev.map(t => t.completed ? t : {
+      ...t,
+      completed: true,
+      subtasks: (t.subtasks || []).map(st => ({ ...st, completed: true }))
+    }));
+
+    try {
+      for (const task of pending) {
+        await toggleTaskCompletion(task, todayStr);
+      }
+      onTasksChange?.();
+    } catch (err) {
+      console.error('Failed to mark all tasks complete:', err);
+      await loadTodayTasks(false);
+    }
+    setMarkingAll(false);
   };
 
   // 4. Deterministic Daily Quote
@@ -433,9 +470,24 @@ export default function DashboardView({
                 </div>
                 <h3 className="text-[13px] font-bold text-white tracking-tight">Today's Checklist</h3>
               </div>
-              <button onClick={() => setActiveTab('tasks')} className="text-[10px] text-slate-600 hover:text-sky-400 font-semibold flex items-center gap-0.5 cursor-pointer transition-colors">
-                Manage <ChevronRight size={10} />
-              </button>
+              <div className="flex items-center gap-2">
+                {pendingCount > 0 && (
+                  <button
+                    onClick={handleMarkAllComplete}
+                    disabled={markingAll}
+                    title={`Mark all ${pendingCount} remaining task${pendingCount > 1 ? 's' : ''} as completed`}
+                    className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300
+                      flex items-center gap-1 px-2 py-1 rounded-lg cursor-pointer transition-all
+                      disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.22)' }}>
+                    <CheckCheck size={10} />
+                    {markingAll ? 'Marking…' : 'Mark all done'}
+                  </button>
+                )}
+                <button onClick={() => setActiveTab('tasks')} className="text-[10px] text-slate-600 hover:text-sky-400 font-semibold flex items-center gap-0.5 cursor-pointer transition-colors">
+                  Manage <ChevronRight size={10} />
+                </button>
+              </div>
             </div>
 
             {/* Checklist Progress Bar */}

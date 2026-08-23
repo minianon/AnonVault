@@ -1436,8 +1436,13 @@ function AppInner() {
   // --- Dynamic Stats calculation ---
   const [taskStats, setTaskStats] = useState(computeTaskStats);
 
+  // Bumped on every task mutation so all mounted views refetch. All tabs stay
+  // mounted (only opacity toggles), so without this a view keeps stale tasks.
+  const [tasksVersion, setTasksVersion] = useState(0);
+
   const refreshPendingTasks = useCallback(() => {
     setTaskStats(computeTaskStats());
+    setTasksVersion(v => v + 1);
   }, []);
 
   const stats = {
@@ -1501,6 +1506,7 @@ function AppInner() {
                   projectIdeas={projectIdeas}
                   quotes={quotes}
                   onTasksChange={refreshPendingTasks}
+                  tasksVersion={tasksVersion}
                   setActiveTab={setActiveTab}
                   onMenuToggle={() => setMobileMenuOpen(true)}
                   onSelectIdea={(id) => { setInitIdeaId(id); setActiveTab('ideas'); }}
@@ -1560,6 +1566,7 @@ function AppInner() {
                 <TasksView
                   showToast={showToast}
                   onTasksChange={refreshPendingTasks}
+                  tasksVersion={tasksVersion}
                   onLock={handleLock}
                   onMenuToggle={() => setMobileMenuOpen(true)}
                 />
