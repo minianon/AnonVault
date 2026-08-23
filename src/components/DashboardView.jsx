@@ -418,7 +418,7 @@ export default function DashboardView({
       </header>
 
       {/* Main Grid View */}
-      <div className="flex-1 overflow-y-auto px-8 py-7 space-y-5 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-8 py-7 space-y-5 custom-scrollbar reveal-stagger">
         
         {/* Daily Quote Card */}
         <div 
@@ -465,7 +465,7 @@ export default function DashboardView({
         </div>
 
         {/* Action Panels */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 reveal-stagger">
           
           {/* Left Side: Daily Checklist */}
           <div 

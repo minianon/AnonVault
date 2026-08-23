@@ -1081,6 +1081,8 @@ function AppInner() {
     return sessionStorage.getItem('minianon_authorized') !== 'true';
   });
   const [lockFadeOut, setLockFadeOut] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const revealTimers = useRef([]);
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard as default
   const [initIdeaId, setInitIdeaId] = useState(null);
   const [initProjectId, setInitProjectId] = useState(null);
@@ -1109,18 +1111,26 @@ function AppInner() {
   };
 
   const handleLock = () => {
+    revealTimers.current.forEach(clearTimeout);
+    revealTimers.current = [];
     sessionStorage.removeItem('minianon_authorized');
     setIsAuthorized(false);
     setLockFadeOut(false);
+    setRevealing(false);
     setShowLockScreen(true);
   };
 
   const handleUnlockComplete = () => {
     setIsAuthorized(true);
     setLockFadeOut(true);
-    setTimeout(() => {
-      setShowLockScreen(false);
-    }, 850);
+    setRevealing(true);
+    revealTimers.current = [
+      // unmount the lock layer as its blur-out finishes
+      setTimeout(() => setShowLockScreen(false), 520),
+      // drop the reveal class once the cascade is done, so the settled
+      // transform stops acting as a containing block for the fixed sidebar
+      setTimeout(() => setRevealing(false), 1700),
+    ];
   };
 
   // Data states
@@ -1464,12 +1474,13 @@ function AppInner() {
   return (
     <div className="flex w-screen h-screen overflow-hidden bg-slate-950 font-sans relative">
       
-      {/* Dashboard Wrapper with zoom-in entry transition */}
-      <div className="flex w-full h-full overflow-hidden"
+      {/* Dashboard wrapper — .app-reveal stages the post-unlock entrance */}
+      <div className={`flex w-full h-full overflow-hidden ${revealing ? 'app-reveal' : ''}`}
         style={{
+          // While revealing, the .app-reveal cascade drives opacity and
+          // transform; this only keeps the dashboard hidden until handover.
           opacity: lockFadeOut || !showLockScreen ? 1 : 0,
-          transform: lockFadeOut || !showLockScreen ? 'scale(1)' : 'scale(0.96)',
-          transition: 'opacity 0.95s cubic-bezier(0.16, 1, 0.3, 1), transform 0.95s cubic-bezier(0.16, 1, 0.3, 1)',
+          transition: revealing ? 'none' : 'opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
           pointerEvents: showLockScreen && !lockFadeOut ? 'none' : 'auto',
         }}>
         
@@ -1627,8 +1638,9 @@ function AppInner() {
           inset: 0,
           zIndex: 50,
           opacity: lockFadeOut ? 0 : 1,
-          transform: lockFadeOut ? 'scale(1.04)' : 'scale(1)',
-          transition: 'opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1), transform 0.85s cubic-bezier(0.16, 1, 0.3, 1)',
+          transform: lockFadeOut ? 'scale(1.06)' : 'scale(1)',
+          filter: lockFadeOut ? 'blur(14px)' : 'blur(0px)',
+          transition: 'opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s ease-out',
           pointerEvents: lockFadeOut ? 'none' : 'auto',
         }}>
           <LockScreen onAuthorize={handleUnlockComplete} />

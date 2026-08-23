@@ -792,3 +792,81 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
 .light ::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.22); }
 .light ::-webkit-scrollbar-thumb:hover { background: rgba(56,189,248,0.40); }
 .light .workspace-aurora-glow { display: none !important; }
+
+/* ── Unlock → dashboard staged reveal ──────────────────────────────
+   Replaces the flat cross-fade that used to scale the whole dashboard
+   as one plane. Layers land in sequence so the interface reads as
+   assembling itself: sidebar wipes in, main rises, then each panel
+   pops with a light overshoot.
+
+   .app-reveal is removed once the sequence finishes (see
+   handleUnlockComplete) so no animation end-state lingers on the
+   layout — a settled transform would otherwise keep acting as a
+   containing block for the fixed sidebar.                          */
+@keyframes revealFocus {
+  from { opacity: 0; transform: scale(1.028); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes revealWipeLeft {
+  from { opacity: 0; clip-path: inset(0 100% 0 0); }
+  to   { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+@keyframes revealRise {
+  from { opacity: 0; transform: translate3d(0, 22px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes revealPop {
+  from { opacity: 0; transform: translate3d(0, 38px, 0) scale(0.965); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes revealSheen {
+  from { opacity: 0.6; transform: translateX(-120%) skewX(-14deg); }
+  to   { opacity: 0;   transform: translateX(220%)  skewX(-14deg); }
+}
+
+.app-reveal {
+  position: relative;
+  animation: revealFocus 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* one-shot light sweep across the interface as it lands */
+.app-reveal::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 35%, rgba(148,197,255,0.10) 50%, transparent 65%);
+  animation: revealSheen 1.05s cubic-bezier(0.3, 0.9, 0.4, 1) 0.24s both;
+}
+
+.app-reveal .glass-sidebar {
+  animation: revealWipeLeft 0.62s cubic-bezier(0.16, 1, 0.3, 1) 0.10s both;
+}
+
+.app-reveal main        { animation: revealRise 0.60s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both; }
+.app-reveal main header { animation: revealRise 0.55s cubic-bezier(0.16, 1, 0.3, 1) 0.26s both; }
+
+/* sections inside the landing view arrive one after another */
+.app-reveal .reveal-stagger > * {
+  animation: revealPop 0.62s cubic-bezier(0.34, 1.28, 0.64, 1) both;
+}
+.app-reveal .reveal-stagger > *:nth-child(1) { animation-delay: 0.30s; }
+.app-reveal .reveal-stagger > *:nth-child(2) { animation-delay: 0.39s; }
+.app-reveal .reveal-stagger > *:nth-child(3) { animation-delay: 0.48s; }
+.app-reveal .reveal-stagger > *:nth-child(4) { animation-delay: 0.57s; }
+
+/* nested groups continue the cascade rather than restarting it */
+.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(1) { animation-delay: 0.50s; }
+.app-reveal .reveal-stagger .reveal-stagger > *:nth-child(2) { animation-delay: 0.60s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-reveal,
+  .app-reveal::after,
+  .app-reveal .glass-sidebar,
+  .app-reveal main,
+  .app-reveal main header,
+  .app-reveal .reveal-stagger > * {
+    animation: none !important;
+  }
+}
