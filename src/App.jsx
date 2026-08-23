@@ -1474,26 +1474,6 @@ function AppInner() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('anonvault_theme') || 'dark';
-  });
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'light') {
-      root.classList.add('light');
-    } else {
-      root.classList.remove('light');
-    }
-    localStorage.setItem('anonvault_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    showToast('info', next === 'light' ? 'Light Mode' : 'Dark Mode', `Switched to ${next} theme.`, 2200);
-  };
-
   const handleLock = () => {
     revealTimers.current.forEach(clearTimeout);
     revealTimers.current = [];
@@ -2070,8 +2050,6 @@ function AppInner() {
         
         {/* Sidebar Navigation Panel */}
         <Sidebar
-          theme={theme}
-          toggleTheme={toggleTheme}
           activeTab={activeTab}
           setActiveTab={setActiveTab} 
           stats={stats}
@@ -2132,7 +2110,6 @@ function AppInner() {
                   onUpdate={handleUpdateApplication}
                   onDelete={handleDeleteApplication}
                   loading={loading}
-                  theme={theme}
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
@@ -2158,7 +2135,6 @@ function AppInner() {
                   onUpdate={handleUpdateIdea}
                   onDelete={handleDeleteIdea}
                   loading={loading}
-                  theme={theme}
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
@@ -2205,7 +2181,6 @@ function AppInner() {
                   onDelete={handleDeleteProjectIdea}
                   onReorder={handleReorderProjectIdeas}
                   loading={loading}
-                  theme={theme}
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
@@ -2246,7 +2221,6 @@ function AppInner() {
                   onUpdate={handleUpdateQuote}
                   onDelete={handleDeleteQuote}
                   loading={loading}
-                  theme={theme}
                   onLock={handleLock}
                   showToast={showToast}
                   onMenuToggle={() => setMobileMenuOpen(true)}
