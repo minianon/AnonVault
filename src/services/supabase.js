@@ -256,6 +256,10 @@ export const addTaskToSupabase = async (task) => {
     date: task.is_recurring ? null : (task.date || null),
     subtasks: task.subtasks || [],
     completed: false,
+    // Spread in only when set: an unmigrated database has no such column,
+    // and sending it unconditionally would break ordinary task creation
+    // rather than just the hackathon-linked case.
+    ...(task.hackathon_id ? { hackathon_id: task.hackathon_id } : {}),
   };
 
   const { data, error } = await client
@@ -282,6 +286,7 @@ export const updateTaskInSupabase = async (id, updates) => {
       date: updates.date,
       subtasks: updates.subtasks || [],
       completed: updates.completed,
+      ...(updates.hackathon_id !== undefined ? { hackathon_id: updates.hackathon_id || null } : {}),
     })
     .eq('id', id)
     .select();
@@ -395,6 +400,8 @@ export const addProjectIdea = async (idea) => {
     images: idea.images || [],
     links: idea.links || [],
     tags: idea.tags || [],
+    ...(idea.status ? { status: idea.status } : {}),
+    ...(idea.promoted_from ? { promoted_from: idea.promoted_from } : {}),
     ...(user ? { user_id: user.id } : {})
   };
 
@@ -418,7 +425,8 @@ export const updateProjectIdea = async (id, updates) => {
       content: updates.content,
       images: updates.images || [],
       links: updates.links || [],
-      tags: updates.tags
+      tags: updates.tags,
+      ...(updates.status ? { status: updates.status } : {}),
     })
     .eq('id', id)
     .select();
