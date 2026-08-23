@@ -6,6 +6,7 @@ import {
   Globe, ChevronDown, ChevronUp, GripVertical, Info, Maximize2,
   ChevronLeft, ChevronRight, Menu, Star, Rocket
 } from 'lucide-react';
+import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
 
@@ -340,6 +341,10 @@ export default function IdeaVaultView({
 
   const handleOpenAdd = () => { resetForm(); setIsFormOpen(true); };
 
+  const rootRef = useRef(null);
+  const searchRef = useRef(null);
+  useShortcutHooks({ onNew: handleOpenAdd, searchRef, rootRef });
+
   const handleOpenEdit = (idea) => {
     setEditingIdea(idea);
     setFormTitle(idea.title);
@@ -616,7 +621,7 @@ export default function IdeaVaultView({
 
   /* ── render ── */
   return (
-    <div className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
+    <div ref={rootRef} className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
       <div className="workspace-aurora-glow workspace-glow-1" />
       <div className="workspace-aurora-glow workspace-glow-2" />
 
@@ -652,6 +657,7 @@ export default function IdeaVaultView({
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           <input
             type="text"
+            ref={searchRef}
             placeholder="Search ideas…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}

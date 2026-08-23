@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CalendarRange, Lightbulb, TrendingUp, CheckSquare, X, Zap, ChevronLeft, ChevronRight, Rocket, Quote, LayoutDashboard, Pin, BarChart3 } from 'lucide-react';
+import { CalendarRange, Lightbulb, TrendingUp, CheckSquare, X, Zap, ChevronLeft, ChevronRight, Rocket, Quote, LayoutDashboard, Pin, BarChart3, Sun, Moon } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, setMobileOpen }) {
+export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, setMobileOpen, theme, toggleTheme }) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     return localStorage.getItem('anonvault_sidebar_collapsed') === 'true';
   });
@@ -309,6 +309,19 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
         {!isCollapsed ? (
           <div className="px-5 py-4 flex flex-col items-center justify-center shrink-0 animate-in fade-in duration-200 w-full">
             <div className="divider w-full mb-3" />
+
+            {/* Light mode existed in CSS and in App's state the whole time,
+                with nothing anywhere calling toggleTheme. This is the switch. */}
+            <button
+              onClick={toggleTheme}
+              title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+              className="w-full flex items-center justify-center gap-2 mb-3 px-3 py-1.5 rounded-xl
+                text-[11px] font-bold text-slate-500 hover:text-slate-200
+                bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.05] transition-all cursor-pointer"
+            >
+              {theme === 'light' ? <Moon size={11} /> : <Sun size={11} />}
+              {theme === 'light' ? 'Dark mode' : 'Light mode'}
+            </button>
             
             {/* Social Links Row */}
             <div className="flex items-center gap-3 mb-3.5">
@@ -365,6 +378,13 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
         ) : (
           <div className="py-4 flex flex-col items-center justify-center shrink-0 w-full gap-2.5">
             <div className="divider w-full px-2 mb-1" />
+            <button
+              onClick={toggleTheme}
+              title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+              className="w-8 h-8 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.08] text-slate-400 hover:text-white transition-all duration-200 cursor-pointer"
+            >
+              {theme === 'light' ? <Moon size={13} /> : <Sun size={13} />}
+            </button>
             <a
               href="https://x.com/minianondev"
               target="_blank"
