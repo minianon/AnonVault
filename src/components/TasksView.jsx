@@ -6,7 +6,7 @@ import {
   ListChecks, Sparkles, Minus, ArrowDown, EyeOff, Lock, Menu, CheckCheck
 } from 'lucide-react';
 import {
-  getTasksForDate, addTask, updateTask, deleteTask,
+  getTasksForDate, getTasksForDateSync, addTask, updateTask, deleteTask,
   toggleTaskCompletion, toggleSubtaskCompletion
 } from '../services/tasks';
 
@@ -565,14 +565,16 @@ export default function TasksView({ theme, toggleTheme, showToast, onTasksChange
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Refetch when another view mutates tasks. Skips the first run so this does
-  // not duplicate the mount fetch above.
+  // Re-derive when another view mutates tasks. Reads the localStorage cache
+  // synchronously instead of re-hitting the network — every mutation writes
+  // that cache first, so it is already current. Skips the first run so this
+  // does not clobber the mount fetch above.
   const seenVersion = useRef(tasksVersion);
   useEffect(() => {
     if (seenVersion.current === tasksVersion) return;
     seenVersion.current = tasksVersion;
-    reload();
-  }, [tasksVersion, reload]);
+    setTasks(getTasksForDateSync(selectedDate));
+  }, [tasksVersion, selectedDate]);
 
 
   const shiftDate = delta => {
