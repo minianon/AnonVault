@@ -37,7 +37,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
       id: 'timeline',
       label: 'Hackathon Timeline',
       icon: CalendarRange,
-      count: stats.totalApplications,
+      count: stats.upcomingApplications,
       desc: 'Track deadlines',
       accent: '#34d399',
     },
