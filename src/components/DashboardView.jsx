@@ -4,7 +4,7 @@ import {
   MapPin, Clock, ExternalLink, ChevronRight, Tag, Lightbulb, Code2, LinkIcon,
   Circle, CheckCircle2, ChevronDown, Repeat2, CheckCheck
 } from 'lucide-react';
-import { getTasksForDate, toggleTaskCompletion, toggleSubtaskCompletion } from '../services/tasks';
+import { getTasksForDate, getTasksForDateSync, toggleTaskCompletion, toggleSubtaskCompletion } from '../services/tasks';
 import { formatDate, getStatusStyles } from '../utils/helpers';
 
 const PRIORITY_META = {
@@ -241,43 +241,62 @@ export default function DashboardView({
     loadTodayTasks();
   }, [loadTodayTasks]);
 
-  // Refetch when tasks are mutated anywhere (e.g. the Checklist tab). Skips the
-  // first run so it does not duplicate the mount fetch above, and refetches
-  // without the spinner so the widget does not flash on every toggle.
+  // Re-derive when tasks are mutated anywhere (e.g. the Checklist tab). Reads
+  // the localStorage cache synchronously rather than re-hitting the network:
+  // every mutation writes that cache before it touches Supabase, so it is
+  // already current, and this keeps a checkbox click off the network entirely.
+  // Skips the first run so it does not clobber the mount fetch above.
   const seenVersion = useRef(tasksVersion);
   useEffect(() => {
     if (seenVersion.current === tasksVersion) return;
     seenVersion.current = tasksVersion;
-    loadTodayTasks(false);
-  }, [tasksVersion, loadTodayTasks]);
+    if (!todayStr) return;
+    // Syncing React state from an external store is what this effect is for,
+    // and it only runs on a real mutation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTasks(getTasksForDateSync(todayStr));
+  }, [tasksVersion, todayStr]);
 
   // 3. Handle task toggles
+  //    Paint the new state first, then persist. toggleTaskCompletion awaits
+  //    Supabase, so awaiting it before setTasks left the checkbox lagging
+  //    behind the click by a whole round-trip.
   const handleToggleTask = async (task) => {
+    const nextVal = !task.completed;
+
+    // Optimistic Update
+    setTasks(prev => prev.map(t => t.id === task.id ? {
+      ...t,
+      completed: nextVal,
+      subtasks: (t.subtasks || []).map(st => ({ ...st, completed: nextVal }))
+    } : t));
+
     try {
-      const nextVal = await toggleTaskCompletion(task, todayStr);
-      setTasks(prev => prev.map(t => t.id === task.id ? { 
-        ...t, 
-        completed: nextVal,
-        subtasks: (t.subtasks || []).map(st => ({ ...st, completed: nextVal }))
-      } : t));
+      await toggleTaskCompletion(task, todayStr);
       onTasksChange?.();
     } catch (err) {
       console.error('Failed to toggle task:', err);
+      await loadTodayTasks(false);
     }
   };
 
   const handleToggleSubtask = async (task, subtask) => {
+    const nextVal = !subtask.completed;
+
+    // Optimistic Update
+    setTasks(prev => prev.map(t => {
+      if (t.id !== task.id) return t;
+      const nextSubs = (t.subtasks || []).map(st => st.id === subtask.id ? { ...st, completed: nextVal } : st);
+      const allDone = nextSubs.length > 0 && nextSubs.every(s => s.completed);
+      return { ...t, subtasks: nextSubs, completed: allDone };
+    }));
+
     try {
-      const nextVal = await toggleSubtaskCompletion(task, subtask.id, todayStr);
-      setTasks(prev => prev.map(t => {
-        if (t.id !== task.id) return t;
-        const nextSubs = (t.subtasks || []).map(st => st.id === subtask.id ? { ...st, completed: nextVal } : st);
-        const allDone = nextSubs.length > 0 && nextSubs.every(s => s.completed);
-        return { ...t, subtasks: nextSubs, completed: allDone };
-      }));
+      await toggleSubtaskCompletion(task, subtask.id, todayStr);
       onTasksChange?.();
     } catch (err) {
       console.error('Failed to toggle subtask:', err);
+      await loadTodayTasks(false);
     }
   };
 
