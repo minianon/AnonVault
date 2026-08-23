@@ -6,6 +6,8 @@ import TasksView from './components/TasksView';
 import ProjectIdeasView from './components/ProjectIdeasView';
 import QuotesView from './components/QuotesView';
 import DashboardView from './components/DashboardView';
+import ReviewView from './components/ReviewView';
+import CommandPalette from './components/CommandPalette';
 import { ToastProvider, useToast } from './components/Toast';
 import { Lock, ShieldAlert, Cpu, Delete } from 'lucide-react';
 import { 
@@ -23,7 +25,7 @@ import {
   deleteProjectIdea
 } from './services/supabase';
 import { fetchQuotes, addQuote, updateQuote, deleteQuote } from './services/quotes';
-import { getTasksForDateSync, loadAllTasks } from './services/tasks';
+import { getTasksForDateSync, loadAllTasks, addTask } from './services/tasks';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -1435,11 +1437,14 @@ function LockScreen({ onAuthorize }) {
 
 
 /* ── Compute pending task count (reads from localStorage cache) ── */
+function todayDateStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function computeTaskStats() {
   try {
-    const d = new Date();
-    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const allTasks = getTasksForDateSync(today);
+    const allTasks = getTasksForDateSync(todayDateStr());
     const total = allTasks.length;
     const completed = allTasks.filter(t => t.completed).length;
     const pending = total - completed;
@@ -1465,6 +1470,7 @@ function AppInner() {
   const [initHackathonId, setInitHackathonId] = useState(null);
   const didSyncRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('anonvault_theme') || 'dark';
@@ -1859,6 +1865,47 @@ function AppInner() {
   // fully-formed by the aperture and only then animate in.
   const tabRevealOn = revealing || !showLockScreen;
 
+  // Cmd/Ctrl+K anywhere in the workspace. Suppressed while the lock screen
+  // is up so the palette can never be opened over an unauthorised session.
+  useEffect(() => {
+    if (showLockScreen) return;
+    const onKey = e => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen(o => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showLockScreen]);
+
+  // Today's tasks, read straight from the local cache. Only needed while the
+  // palette is open, and cheap enough not to warrant caching.
+  const paletteTasks = paletteOpen ? getTasksForDateSync(todayDateStr()) : [];
+
+  const handleQuickAddTask = async title => {
+    if (!title) return;
+    try {
+      await addTask({
+        title,
+        is_recurring: false,
+        date: todayDateStr(),
+        priority: 'medium',
+        subtasks: [],
+      });
+      refreshPendingTasks();
+      showToast('success', 'Task Added', `"${title}" added to today.`);
+    } catch (err) {
+      console.error('Quick add task failed:', err);
+      showToast('error', 'Add Failed', 'Could not create the task.');
+    }
+  };
+
+  const handleQuickAddIdea = async title => {
+    if (!title) return;
+    await handleAddIdea({ title, content: '', images: [], links: [], tags: [] });
+  };
+
   const stats = {
     // Upcoming only — the badge is an "needs attention" count, like
     // pendingTasks below, so events whose deadline has passed do not belong.
@@ -2023,6 +2070,23 @@ function AppInner() {
                 />
               </div>
 
+              {/* Review Workspace */}
+              <div
+                data-tabreveal={activeTab === 'review' && tabRevealOn ? 'on' : undefined}
+                className={`absolute inset-0 transition-all duration-300 ease-out ${
+                activeTab === 'review'
+                  ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
+                  : 'opacity-0 translate-y-4 scale-[0.985] pointer-events-none'
+              }`}>
+                <ReviewView
+                  applications={applications}
+                  projectIdeas={projectIdeas}
+                  onLock={handleLock}
+                  onMenuToggle={() => setMobileMenuOpen(true)}
+                  setActiveTab={setActiveTab}
+                />
+              </div>
+
               {/* Quotes Vault Workspace */}
               <div
                 data-tabreveal={activeTab === 'quotes' && tabRevealOn ? 'on' : undefined}
@@ -2047,6 +2111,22 @@ function AppInner() {
           </ErrorBoundary>
         </main>
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        tasks={paletteTasks}
+        applications={applications}
+        ideas={ideas}
+        projectIdeas={projectIdeas}
+        quotes={quotes}
+        setActiveTab={setActiveTab}
+        onSelectIdea={id => { setInitIdeaId(id); setActiveTab('ideas'); }}
+        onSelectProject={id => { setInitProjectId(id); setActiveTab('project-ideas'); }}
+        onSelectHackathon={id => { setInitHackathonId(id); setActiveTab('timeline'); }}
+        onQuickAddTask={handleQuickAddTask}
+        onQuickAddIdea={handleQuickAddIdea}
+      />
 
       {showLockScreen && (
         <div style={{
