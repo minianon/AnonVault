@@ -70,25 +70,121 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+/* ── access-granted briefing ────────────────────────────────────────
+   Read straight from the localStorage caches, because the overlay runs
+   before isAuthorized flips and therefore before loadData() has fetched
+   anything. Hackathons have no service-level cache of their own, so
+   loadData writes APPS_CACHE_KEY for the next unlock to read; the very
+   first unlock on a device shows 0 there.                            */
+const APPS_CACHE_KEY = 'anonvault_applications_cache';
+
+function computeBriefing() {
+  const out = { tasksToday: 0, dueThisWeek: 0, concepts: 0 };
+
+  try {
+    out.tasksToday = computeTaskStats().pending;
+  } catch { /* leave at 0 */ }
+
+  try {
+    const raw = localStorage.getItem(APPS_CACHE_KEY);
+    const apps = raw ? JSON.parse(raw) : [];
+    const now = Date.now();
+    const weekOut = now + 7 * 86400000;
+    out.dueThisWeek = apps.filter(a => {
+      if (!a || !a.deadline || a.status === 'rejected') return false;
+      const t = new Date(a.deadline).getTime();
+      return t >= now && t <= weekOut;
+    }).length;
+  } catch { /* leave at 0 */ }
+
+  try {
+    const raw = localStorage.getItem('anonvault_project_ideas');
+    const concepts = raw ? JSON.parse(raw) : [];
+    out.concepts = Array.isArray(concepts) ? concepts.length : 0;
+  } catch { /* leave at 0 */ }
+
+  return out;
+}
+
+/* Counts run up to their value rather than snapping, so the tiles read as
+   being tallied while the ring sweeps. */
+function useCountUp(target, duration, delay) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    let raf = null;
+    let start = null;
+    const tick = ts => {
+      if (start === null) start = ts;
+      const progress = Math.min(1, (ts - start) / duration);
+      setValue(Math.round(target * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    const t = setTimeout(() => { raf = requestAnimationFrame(tick); }, delay);
+    return () => {
+      clearTimeout(t);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [target, duration, delay]);
+  return value;
+}
+
+function BriefingTile({ value, label, accent, delay, dimmed }) {
+  const shown = useCountUp(value, 1000, delay);
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+      padding: '0 18px', minWidth: 76,
+    }}>
+      <span style={{
+        fontSize: 24, fontWeight: 800, lineHeight: 1,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontVariantNumeric: 'tabular-nums',
+        color: dimmed ? 'rgba(148, 163, 184, 0.45)' : accent,
+        textShadow: dimmed ? 'none' : '0 0 18px ' + accent + '66',
+      }}>
+        {String(shown).padStart(2, '0')}
+      </span>
+      <span style={{
+        fontSize: 8.5, fontWeight: 800, letterSpacing: '0.16em',
+        textTransform: 'uppercase', textAlign: 'center',
+        color: 'rgba(148, 163, 184, 0.55)',
+        fontFamily: "'JetBrains Mono', monospace",
+        whiteSpace: 'pre-line',
+      }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 /* ================= access-granted overlay ================= */
 function AccessGranted({ onComplete }) {
   const [active, setActive] = useState(false);
   const [phase, setPhase] = useState('welcome'); // 'welcome' -> 'fadeOut'
+  // Snapshot once so the tiles cannot change value mid-count.
+  const [brief] = useState(computeBriefing);
+
+  const summary =
+    brief.dueThisWeek > 0
+      ? brief.dueThisWeek + ' deadline' + (brief.dueThisWeek > 1 ? 's' : '') + ' closing this week.'
+      : brief.tasksToday > 0
+        ? brief.tasksToday + ' task' + (brief.tasksToday > 1 ? 's' : '') + ' waiting today.'
+        : 'Nothing pressing. Your vault is ready.';
 
   useEffect(() => {
     // Start active phase immediately after mount to trigger animations
     const raf = requestAnimationFrame(() => setActive(true));
     
-    // The ring sweep below runs 0.9s; exit as it completes so the dwell
-    // is exactly as long as the progress it shows, with no dead air.
+    // The ring sweep and the tile counts both land at 1.2s; exit then, so
+    // the dwell is exactly as long as the briefing it shows.
     const tFadeOut = setTimeout(() => {
       setPhase('fadeOut');
-    }, 900);
+    }, 1250);
 
     // Hand over to the parent, which opens the aperture onto the dashboard.
     const tComplete = setTimeout(() => {
       onComplete();
-    }, 1150);
+    }, 1500);
     
     return () => {
       cancelAnimationFrame(raf);
@@ -166,7 +262,7 @@ function AccessGranted({ onComplete }) {
               stroke="#34d399" strokeWidth="2" strokeLinecap="round"
               strokeDasharray="414.69"
               style={{
-                animation: 'vaultRingProgress 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards',
+                animation: 'vaultRingProgress 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards',
                 filter: 'drop-shadow(0 0 6px rgba(52, 211, 153, 0.7))',
               }}
             />
@@ -237,14 +333,52 @@ function AccessGranted({ onComplete }) {
               animation: 'popupSlideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards',
               opacity: 0,
             }}>
-              Your vault is ready.
+              {summary}
             </p>
+
+            {/* Pre-flight briefing — makes the dwell a useful glance rather
+                than pure ceremony. */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              marginTop: 14,
+              padding: '14px 6px',
+              borderRadius: 16,
+              background: 'rgba(255, 255, 255, 0.022)',
+              border: '1px solid rgba(255, 255, 255, 0.055)',
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+              animation: 'popupSlideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.18s forwards',
+              opacity: 0,
+            }}>
+              <BriefingTile
+                value={brief.tasksToday}
+                label={'tasks\ntoday'}
+                accent="#38bdf8"
+                delay={180}
+                dimmed={brief.tasksToday === 0}
+              />
+              <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.06)' }} />
+              <BriefingTile
+                value={brief.dueThisWeek}
+                label={'due\nthis week'}
+                accent="#fbbf24"
+                delay={260}
+                dimmed={brief.dueThisWeek === 0}
+              />
+              <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.06)' }} />
+              <BriefingTile
+                value={brief.concepts}
+                label={'concepts'}
+                accent="#34d399"
+                delay={340}
+                dimmed={brief.concepts === 0}
+              />
+            </div>
 
             <div style={{ 
               display: 'flex', alignItems: 'center', gap: 6,
-              animation: 'popupSlideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.25s forwards',
+              animation: 'popupSlideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.34s forwards',
               opacity: 0,
-              marginTop: 6
+              marginTop: 10
             }}>
               <span style={{
                 fontSize: 10, 
@@ -1218,6 +1352,16 @@ function AppInner() {
       setApplications(appsData);
       setIdeas(ideasData);
       setQuotes(quotesData);
+
+      // Cache just what the unlock briefing needs — it runs before this
+      // fetch has had a chance to happen.
+      try {
+        localStorage.setItem(APPS_CACHE_KEY, JSON.stringify(
+          (appsData || []).map(a => ({ deadline: a.deadline, status: a.status }))
+        ));
+      } catch (err) {
+        console.warn('Could not cache applications for the unlock briefing:', err);
+      }
 
       // Fetch project ideas from Supabase with localStorage fallback
       try {
