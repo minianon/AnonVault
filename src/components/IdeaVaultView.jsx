@@ -343,6 +343,17 @@ export default function IdeaVaultView({
   const { isArchived, toggleArchived, archivedIds } = useArchive('anonvault_ideas_archived');
   const [showArchived, setShowArchived] = useState(false);
 
+  // Promoted means moved, not copied — so the idea leaves the active vault.
+  // Archived rather than deleted, deliberately: the concept carries a
+  // promoted_from FK to this row, and the FK is ON DELETE SET NULL, so
+  // deleting the idea would silently sever the trace and break the
+  // "Promoted" badge that depends on it. Archiving gets it out of the way
+  // and stays reversible.
+  const handlePromote = async idea => {
+    const ok = await onPromoteToProject?.(idea);
+    if (ok && !isArchived(idea.id)) toggleArchived(idea.id);
+  };
+
   const handleOpenAdd = () => { resetForm(); setIsFormOpen(true); };
 
   const rootRef = useRef(null);
@@ -735,7 +746,7 @@ export default function IdeaVaultView({
             </h3>
             <p className="text-[12px] text-slate-600 mt-1.5 leading-relaxed">
               {showArchived
-                ? 'Your ideas are all still active. Archive one to tuck it away without deleting it.'
+                ? 'Nothing here yet. Ideas land in the archive when you archive them, or when you promote one to Project Ideas.'
                 : searchTerm || selectedTag ? 'Try adjusting your search or tags.' : 'Capture your first creative thought.'}
             </p>
             {showArchived ? (
@@ -795,7 +806,7 @@ export default function IdeaVaultView({
                         setHoveredDragId={setHoveredDragId}
                         isPinned={true}
                         onTogglePin={togglePin}
-                        onPromote={onPromoteToProject}
+                        onPromote={handlePromote}
                         promotedTo={promotedMap[idea.id]}
                         onOpenConcept={onOpenConcept}
                         onToggleArchive={toggleArchived}
@@ -845,7 +856,7 @@ export default function IdeaVaultView({
                         setHoveredDragId={setHoveredDragId}
                         isPinned={false}
                         onTogglePin={togglePin}
-                        onPromote={onPromoteToProject}
+                        onPromote={handlePromote}
                         promotedTo={promotedMap[idea.id]}
                         onOpenConcept={onOpenConcept}
                         onToggleArchive={toggleArchived}
