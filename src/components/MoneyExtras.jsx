@@ -215,9 +215,13 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
       { label: 'Undo', onClick: () => rows.forEach(t => transactions.restore(t)) });
   };
 
+  // Its "received" ticks go with it — they only exist because of the source.
   const remove = s => {
+    const ticks = transactions.getAll().filter(t => t.source_id === s.id);
+    ticks.forEach(t => transactions.remove(t.id));
     incomeSources.remove(s.id);
-    showToast?.('warning', 'Source removed', s.name, 6000, { label: 'Undo', onClick: () => incomeSources.restore(s) });
+    showToast?.('warning', 'Source removed', ticks.length ? `${s.name} and ${ticks.length} received entr${ticks.length === 1 ? 'y' : 'ies'}` : s.name, 7000,
+      { label: 'Undo', onClick: () => { incomeSources.restore(s); ticks.forEach(t => transactions.restore(t)); } });
   };
 
   const expectedLabel = (s) => {
@@ -288,7 +292,20 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
    is sitting there now (balance). Profit = balance + withdrawn − invested,
    so taking money out of a trading account doesn't look like a loss. */
 
-const MOVE_LABEL = { start: 'Started', add: 'Added', withdraw: 'Withdrew', value: 'Balance updated' };
+const MOVE_LABEL = { start: 'Invested', add: 'Invested more', withdraw: 'Withdrew', value: 'Balance updated' };
+
+/* History rows newest-date first. Holdings created before history existed
+   (or edited by hand) get their opening amount shown as the first
+   "Invested" row, so what you put in is always visible. */
+function historyRows(i) {
+  const h = (Array.isArray(i.history) ? i.history : []).map((x, idx) => ({ ...x, idx }));
+  if (!h.some(x => x.type === 'start')) {
+    const addedLater = h.filter(x => x.type === 'add').reduce((s, x) => s + num(x.amount), 0);
+    const opening = num(i.invested) - addedLater;
+    if (opening > 0) h.push({ type: 'start', amount: opening, date: i.date || (i.created_at || '').slice(0, 10), idx: -1 });
+  }
+  return h.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.idx - a.idx);
+}
 
 function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
   const [name, setName] = useState(initial?.name || '');
@@ -487,7 +504,8 @@ export function InvestmentsTab({ fmt, showToast }) {
               const wd = num(i.withdrawn);
               const g = bal + wd - num(i.invested);
               const r = num(i.invested) ? g / num(i.invested) : 0;
-              const history = Array.isArray(i.history) ? i.history : [];
+              const history = historyRows(i);
+              const lastIdx = (Array.isArray(i.history) ? i.history.length : 0) - 1;
               const expanded = open === i.id;
               return (
                 <div key={i.id} className="border-t border-white/[0.04]">
@@ -523,8 +541,13 @@ export function InvestmentsTab({ fmt, showToast }) {
                     <div className="px-4 pb-3 fade-up">
                       <div className="rounded-lg border border-white/[0.05] bg-white/[0.015] divide-y divide-white/[0.04]">
                         {history.length === 0 && <p className="px-3 py-2.5 text-[12.5px] text-slate-500">No movements recorded yet.</p>}
-                        {[...history].reverse().map((h, idx) => (
-                          <div key={idx} className="flex items-center gap-3 px-3 h-9 text-[12.5px]">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2 text-[12px] text-slate-500">
+                          <span>Put in <span className="text-slate-200 tabular-nums">{fmt(i.invested)}</span></span>
+                          <span>Withdrawn <span className="text-slate-200 tabular-nums">{fmt(wd)}</span></span>
+                          <span>Balance <span className="text-slate-200 tabular-nums">{fmt(bal)}</span></span>
+                        </div>
+                        {history.map(h => (
+                          <div key={h.idx} className="flex items-center gap-3 px-3 h-9 text-[12.5px]">
                             <span className="text-slate-500 tabular-nums w-20 shrink-0">
                               {h.date ? new Date(h.date + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' }) : ''}
                             </span>
@@ -532,7 +555,7 @@ export function InvestmentsTab({ fmt, showToast }) {
                             <span className={`tabular-nums ${h.type === 'withdraw' ? 'text-amber-400' : h.type === 'value' ? 'text-slate-300' : 'text-emerald-400'}`}>
                               {h.type === 'withdraw' ? '−' : h.type === 'value' ? '= ' : '+'}{fmt(h.amount)}
                             </span>
-                            {idx === 0 && h.type !== 'start' && (
+                            {h.idx === lastIdx && h.type !== 'start' && (
                               <button onClick={() => undoLast(i)} className="text-[11.5px] text-slate-500 hover:text-slate-100 cursor-pointer">Undo</button>
                             )}
                           </div>
@@ -1005,9 +1028,13 @@ export function EmiTab({ fmt, showToast }) {
       { label: 'Undo', onClick: () => { rows.forEach(t => transactions.restore(t)); emis.update(e.id, before); } });
   };
 
+  // Its "paid" expenses go with it, so spending doesn't keep a ghost EMI.
   const remove = e => {
+    const paid = transactions.getAll().filter(t => t.emi_id === e.id);
+    paid.forEach(t => transactions.remove(t.id));
     emis.remove(e.id);
-    showToast?.('warning', 'EMI deleted', e.name, 6000, { label: 'Undo', onClick: () => emis.restore(e) });
+    showToast?.('warning', 'EMI deleted', paid.length ? `${e.name} and ${paid.length} payment${paid.length === 1 ? '' : 's'}` : e.name, 7000,
+      { label: 'Undo', onClick: () => { emis.restore(e); paid.forEach(t => transactions.restore(t)); } });
   };
 
   return (

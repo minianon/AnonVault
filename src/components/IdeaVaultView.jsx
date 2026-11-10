@@ -2,21 +2,21 @@ import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } fr
 import { createPortal } from 'react-dom';
 import {
   Plus, Search, Trash2, Pencil, X, AlertTriangle, Lightbulb, ExternalLink, Globe,
-  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, GripVertical, Maximize2, Star,
+  ChevronLeft, ChevronRight, GripVertical, Maximize2, Star, Loader2, Tag, Clock,
   Rocket, Archive, ArchiveRestore, CheckSquare, Square, Pin, PinOff, Link2, Images,
-  ImagePlus, Hash,
+  ImagePlus, Hash, Image as ImageIcon,
 } from 'lucide-react';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { useArchive } from '../utils/useArchive';
 import { useListNav } from '../utils/useListNav';
 import BulkBar from './BulkBar';
-import { PageHeader, Empty, Card, Modal, Field, Select, inputCls } from './ui';
+import { PageHeader, Empty, Card, Modal, Select } from './ui';
+import { EditorLayout, PropRow, TitleInput, DescriptionInput, SectionTitle, LinksEditor } from './editor';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
 
 /* ─── shared looks ─────────────────────────────────────── */
-const labelCls = 'block text-[12px] font-medium text-slate-400';
-const addRowCls = 'w-full h-8 inline-flex items-center justify-center gap-1.5 text-[12.5px] text-slate-400 border border-dashed border-white/[0.1] rounded-lg hover:text-slate-100 hover:border-white/[0.18] hover:bg-white/[0.02] transition-colors cursor-pointer';
+const MAX_IMAGE_MB = 4;
 const chipCls = active =>
   `h-8 px-2.5 rounded-lg text-[12.5px] border cursor-pointer transition-colors shrink-0 inline-flex items-center ${
     active ? 'bg-white/[0.09] border-white/[0.14] text-slate-100' : 'border-white/[0.06] text-slate-400 hover:text-slate-200'
@@ -60,17 +60,107 @@ function readOrder() {
   }
 }
 
-/* Label row for groups that hold buttons. <Field> wraps its children in a
-   <label>, which would forward stray clicks to the first button inside. */
-function Section({ label, meta, children }) {
+// Links go into the shared LinksEditor as [{ url, label }] — the same shape
+// ideas store — so only rows without a URL (never saved anyway) are dropped.
+const editorLinks = links =>
+  (links || []).filter(l => l && (l.url || '').trim()).map(l => ({ ...l, url: l.url, label: l.label || '' }));
+
+/* Full-screen image overlay. Portalled, because the dialog surface is
+   transformed and would trap a fixed overlay inside it. Escape closes this
+   first, not the dialog under it. */
+function ImageViewer({ images, index, setIndex, onClose, fallbackAlt }) {
+  const count = images.length;
+  const current = images[index];
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); onClose(); }
+      else if (e.key === 'ArrowRight' && count > 1) setIndex(i => (i + 1) % count);
+      else if (e.key === 'ArrowLeft' && count > 1) setIndex(i => (i - 1 + count) % count);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [count, onClose, setIndex]);
+  if (!current) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[120] bg-black/90 flex flex-col items-center justify-center p-4 sm:p-6 fade-up"
+      onClick={onClose}>
+      <button onClick={e => { e.stopPropagation(); onClose(); }} aria-label="Close full screen"
+        className="absolute top-4 right-4 w-9 h-9 inline-flex items-center justify-center bg-white/10 hover:bg-white/15 border border-white/10 rounded-lg text-slate-200 hover:text-white transition-colors cursor-pointer">
+        <X size={16} />
+      </button>
+      <img src={current.url} alt={current.caption || fallbackAlt}
+        className="max-w-full max-h-[82vh] object-contain rounded-lg" onClick={e => e.stopPropagation()} />
+      {current.caption && (
+        <p className="mt-4 text-center text-[13px] text-slate-300 max-w-xl leading-relaxed" onClick={e => e.stopPropagation()}>
+          {current.caption}
+        </p>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+/* ─── Images with cover + captions ─────────────────────────
+   Same look as the kit's ImagesEditor, but ideas keep a caption per image
+   and an explicit cover, which that editor (plain URL strings) can't hold. */
+function IdeaImagesEditor({ images, uploading, error, onAddFiles, onRemove, onCaption, onSetPrimary }) {
+  const fileRef = useRef(null);
+  const [viewer, setViewer] = useState(null);
+  const closeViewer = useCallback(() => setViewer(null), []);
+  const shown = images.filter(img => img.url);
+  const hasExplicitPrimary = images.some(img => img.is_primary);
+
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className={labelCls}>{label}</span>
-        {meta != null && <span className="text-[11.5px] text-slate-600 tabular-nums">{meta}</span>}
+    <section>
+      <SectionTitle right={`Paste with Ctrl+V · up to ${MAX_IMAGE_MB} MB`}>Images</SectionTitle>
+      <div className="flex flex-wrap gap-2">
+        {images.map((img, i) => {
+          if (!img.url) return null;
+          const isPrimary = hasExplicitPrimary ? !!img.is_primary : i === 0;
+          return (
+            <div key={img.url.slice(-48) + i} className="w-28 space-y-1">
+              <div className="group/img relative w-28 h-20 rounded-lg overflow-hidden border border-white/[0.07] bg-black/30">
+                <img src={img.url} alt={img.caption || 'Idea image'} className="w-full h-full object-cover cursor-zoom-in"
+                  onClick={() => setViewer(shown.indexOf(img))} />
+                <button type="button" onClick={() => onSetPrimary(i)} aria-pressed={isPrimary}
+                  title={isPrimary ? 'Cover image' : 'Set as cover'}
+                  className={`absolute left-1 top-1 h-5 px-1 rounded text-[10px] inline-flex items-center gap-0.5 cursor-pointer transition-opacity ${
+                    isPrimary ? 'bg-black/70 text-amber-300' : 'bg-black/65 text-slate-200 hover:text-amber-200 opacity-100 sm:opacity-0 sm:group-hover/img:opacity-100 focus-visible:opacity-100'}`}>
+                  <Star size={9} className={isPrimary ? 'fill-amber-300' : ''} />
+                  {isPrimary ? 'Cover' : <span className="sr-only">Set as cover</span>}
+                </button>
+                <button type="button" onClick={() => onRemove(i)} title="Remove" aria-label="Remove image"
+                  className="absolute right-1 top-1 w-6 h-6 rounded-md bg-black/65 text-slate-200 hover:text-rose-300 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover/img:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer">
+                  <X size={12} />
+                </button>
+              </div>
+              <input value={img.caption || ''} onChange={e => onCaption(i, e.target.value)}
+                placeholder="Caption" aria-label="Image caption"
+                className="w-full h-6 px-1.5 -mx-px rounded-md bg-transparent text-[11.5px] text-slate-300 placeholder:text-slate-600 outline-none hover:bg-white/[0.03] focus:bg-white/[0.04] transition-colors" />
+            </div>
+          );
+        })}
+        {Array.from({ length: uploading }).map((_, i) => (
+          <div key={'up' + i} className="w-28 h-20 rounded-lg border border-white/[0.07] skeleton flex items-center justify-center">
+            <Loader2 size={15} className="animate-spin text-slate-500" />
+          </div>
+        ))}
+        <button type="button" onClick={() => fileRef.current?.click()}
+          className={`${shown.length || uploading ? 'w-28 h-20 flex-col' : 'h-9 px-3'} rounded-lg border border-dashed border-white/[0.12] hover:border-white/[0.25] hover:bg-white/[0.02] text-slate-500 hover:text-slate-200 flex items-center justify-center gap-1.5 text-[12.5px] cursor-pointer transition-colors`}>
+          <ImageIcon size={14} /> Add image
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={e => { onAddFiles(e.target.files); e.target.value = ''; }} />
       </div>
-      {children}
-    </div>
+      {error && (
+        <p className="mt-2 text-[12px] text-amber-400 flex items-center gap-1.5">
+          <AlertTriangle size={12} className="shrink-0" />{error}
+        </p>
+      )}
+      {viewer !== null && viewer >= 0 && (
+        <ImageViewer images={shown} index={viewer} setIndex={setViewer} onClose={closeViewer} fallbackAlt="Idea image" />
+      )}
+    </section>
   );
 }
 
@@ -248,36 +338,6 @@ function QuickCapture({ inputRef, onCapture, onMore, suggestions, defaultTag }) 
   );
 }
 
-/* ─── Single link row inside the editor ────────────────── */
-function LinkRow({ link, index, total, onRemove, onChange, onMoveUp, onMoveDown }) {
-  const moveCls = disabled =>
-    `w-6 h-[17px] inline-flex items-center justify-center rounded text-slate-500 hover:text-slate-100 hover:bg-white/[0.06] transition-colors cursor-pointer ${
-      disabled ? 'opacity-25 pointer-events-none' : ''}`;
-  return (
-    <div className="flex items-start gap-1.5">
-      <div className="flex flex-col shrink-0 pt-px">
-        <button type="button" disabled={index === 0} onClick={() => onMoveUp(index)} className={moveCls(index === 0)} title="Move link up" aria-label="Move link up">
-          <ChevronUp size={12} />
-        </button>
-        <button type="button" disabled={index === total - 1} onClick={() => onMoveDown(index)} className={moveCls(index === total - 1)} title="Move link down" aria-label="Move link down">
-          <ChevronDown size={12} />
-        </button>
-      </div>
-      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-[1.4fr_1fr] gap-1.5">
-        <input type="url" placeholder="https://…" value={link.url} aria-label="Link URL"
-          onChange={e => onChange(index, { ...link, url: e.target.value })}
-          className="input-premium w-full min-w-0 h-9 px-3 rounded-lg text-[13px]" />
-        <input type="text" placeholder="Label (e.g. GitHub)" value={link.label} aria-label="Link label"
-          onChange={e => onChange(index, { ...link, label: e.target.value })}
-          className="input-premium w-full min-w-0 h-9 px-3 rounded-lg text-[13px]" />
-      </div>
-      <button type="button" onClick={() => onRemove(index)} className="icon-btn !w-9 !h-9 hover:!text-rose-400 cursor-pointer shrink-0" aria-label="Remove link">
-        <X size={13} />
-      </button>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════ */
@@ -324,9 +384,8 @@ export default function IdeaVaultView({
   const [formLinks,       setFormLinks]       = useState([]);   // [{url, label}]
 
   /* upload state */
-  const [uploadingIndex,  setUploadingIndex]  = useState(null);
+  const [uploading,       setUploading]       = useState(0);    // images in flight
   const [uploadError,     setUploadError]     = useState('');
-  const fileRef = useRef(null);
 
   /* modals */
   const [deleteConfirmId,    setDeleteConfirmId]    = useState(null);
@@ -377,7 +436,7 @@ export default function IdeaVaultView({
     setFormTitle(''); setFormContent('');
     setFormTags([]); setTagInputVal('');
     setFormImages([]); setFormLinks([]);
-    setUploadingIndex(null); setUploadError('');
+    setUploading(0); setUploadError('');
     setEditingIdea(null);
     setFormStarred(false);
   };
@@ -427,53 +486,48 @@ export default function IdeaVaultView({
     setTagInputVal('');
     setFormStarred(pinnedIds.includes(idea.id));
     setFormImages(ideaImages(idea));
-    setFormLinks(idea.links || []);
-    setUploadingIndex(null); setUploadError('');
+    setFormLinks(editorLinks(idea.links));
+    setUploading(0); setUploadError('');
     setIsFormOpen(true);
   };
 
   /* ── image handlers ── */
   const removeImageRow = (i) => setFormImages(p => p.filter((_, idx) => idx !== i));
-  const changeImageRow = (i, url, caption) =>
-    setFormImages(p => p.map((item, idx) => idx === i ? { ...item, url, caption: caption ?? item.caption } : item));
+  const changeImageCaption = (i, caption) =>
+    setFormImages(p => p.map((item, idx) => idx === i ? { ...item, caption } : item));
   const handleSetPrimary = (index) =>
     setFormImages(p => p.map((item, idx) => ({ ...item, is_primary: idx === index })));
-  const hasExplicitPrimary = formImages.some(img => img.is_primary);
 
-  const handleImageFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // let the same file be picked again
-    if (!file) return;
-    if (file.size > 4 * 1024 * 1024) {
-      showToast?.('warning', 'File Too Large', 'Maximum image size is 4 MB.');
-      setUploadError('Max 4 MB');
-      return;
-    }
-    setUploadingIndex(formImages.length); setUploadError('');
-    try {
-      const publicUrl = await uploadIdeaImage(file);
-      setFormImages(p => [...p, { url: publicUrl, caption: '' }]);
-      showToast?.('success', 'Image Uploaded', 'Your image is ready.');
-    } catch {
-      setUploadError('Upload failed — check your "idea-images" storage bucket.');
-      showToast?.('error', 'Upload Failed', 'Could not upload image. Check your storage bucket.');
-    } finally {
-      setUploadingIndex(null);
+  // Ideas upload to the Supabase "idea-images" bucket only (no local
+  // fallback), capped at 4 MB each. Several files (picked or pasted) go
+  // one after another.
+  const addImageFiles = async (files) => {
+    const list = [...(files || [])].filter(f => f.type?.startsWith('image/'));
+    if (!list.length) return;
+    setUploadError('');
+    for (const file of list) {
+      if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+        showToast?.('warning', 'File Too Large', `Maximum image size is ${MAX_IMAGE_MB} MB.`);
+        setUploadError(`Max ${MAX_IMAGE_MB} MB`);
+        continue;
+      }
+      setUploading(n => n + 1);
+      try {
+        const publicUrl = await uploadIdeaImage(file);
+        setFormImages(p => [...p, { url: publicUrl, caption: '' }]);
+        showToast?.('success', 'Image Uploaded', 'Your image is ready.');
+      } catch {
+        setUploadError('Upload failed — check your "idea-images" storage bucket.');
+        showToast?.('error', 'Upload Failed', 'Could not upload image. Check your storage bucket.');
+      } finally {
+        setUploading(n => n - 1);
+      }
     }
   };
 
-  /* ── link handlers ── */
-  const addLinkRow    = () => setFormLinks(p => [...p, { url: '', label: '' }]);
-  const removeLinkRow = (i) => setFormLinks(p => p.filter((_, idx) => idx !== i));
-  const changeLinkRow = (i, val) => setFormLinks(p => p.map((item, idx) => idx === i ? val : item));
-  const moveLink = (index, direction) => {
-    const nextIdx = index + direction;
-    if (nextIdx < 0 || nextIdx >= formLinks.length) return;
-    const updated = [...formLinks];
-    const temp = updated[index];
-    updated[index] = updated[nextIdx];
-    updated[nextIdx] = temp;
-    setFormLinks(updated);
+  const handleFormPaste = (e) => {
+    const imgs = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (imgs.length) { e.preventDefault(); addImageFiles(imgs); }
   };
 
   /* ── tag form handlers ── */
@@ -535,13 +589,14 @@ export default function IdeaVaultView({
     handleDragEnd();
   };
 
-  /* ── submit ── */
-  const handleSubmit = async (e) => {
-    e?.preventDefault();
-    if (uploadingIndex !== null) return;
+  /* ── submit ──
+     saveForm returns false when nothing was saved, otherwise the saved idea
+     as far as it is known here (edits merged over the stored row). */
+  const saveForm = async () => {
+    if (uploading > 0) return false;
     if (!formTitle.trim()) {
       showToast?.('error', 'Title Required', 'Please give your idea a title before saving.');
-      return;
+      return false;
     }
 
     let finalTags = [...formTags];
@@ -575,17 +630,34 @@ export default function IdeaVaultView({
         }
         return prev;
       });
-    } else {
-      const added = await onAdd(payload);
-      if (added && added.id && formStarred) {
-        setPinnedIds(prev => {
-          const updated = [...prev, added.id];
-          localStorage.setItem('anonvault_ideas_pinned', JSON.stringify(updated));
-          return updated;
-        });
-      }
+      return { ...editingIdea, ...payload };
     }
+    const added = await onAdd(payload);
+    if (added && added.id && formStarred) {
+      setPinnedIds(prev => {
+        const updated = [...prev, added.id];
+        localStorage.setItem('anonvault_ideas_pinned', JSON.stringify(updated));
+        return updated;
+      });
+    }
+    return added || null;
+  };
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault();
+    const saved = await saveForm();
+    if (saved === false) return;
     setIsFormOpen(false); resetForm();
+  };
+
+  // "Send to board" from the editor: save the edits first so the card is
+  // made from what is on screen, then run the usual promote flow.
+  const handleSendFromEditor = async () => {
+    if (!editingIdea) return;
+    const saved = await saveForm();
+    if (saved === false) return;
+    setIsFormOpen(false); resetForm();
+    await handlePromote(saved);
   };
 
   /* ── derived tags for filters ── */
@@ -884,8 +956,10 @@ export default function IdeaVaultView({
         ]}
       />
 
-      {/* ═══ ADD / EDIT ═══ */}
-      <Modal open={isFormOpen} onClose={closeForm} title={editingIdea ? 'Edit idea' : 'New idea'} width={560}
+      {/* ═══ ADD / EDIT ═══
+          Built from the shared editor kit (editor.jsx), like the board's card
+          editor: content on the left, properties on the right. */}
+      <Modal open={isFormOpen} onClose={closeForm} title={editingIdea ? 'Edit idea' : 'New idea'} width={780}
         footer={<>
           {editingIdea && (
             <button type="button" onClick={() => { const id = editingIdea.id; closeForm(); setDeleteConfirmId(id); }}
@@ -893,108 +967,58 @@ export default function IdeaVaultView({
               <Trash2 size={13} /><span className="hidden sm:inline">Delete</span>
             </button>
           )}
+          <span className="hidden sm:flex items-center gap-1 text-[11.5px] text-slate-600 mr-1"><span className="kbd">Ctrl</span><span className="kbd">↵</span> save</span>
           <button type="button" onClick={closeForm} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Cancel</button>
-          <button type="button" onClick={handleSubmit} disabled={uploadingIndex !== null}
-            className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">
+          <button type="button" onClick={handleSubmit} disabled={uploading > 0}
+            className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
             {editingIdea ? 'Save' : 'Save idea'}
           </button>
         </>}>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Field label="Title">
-            <input value={formTitle} onChange={e => setFormTitle(e.target.value)}
-              placeholder="e.g. AI-driven portfolio tracker" className={inputCls} />
-          </Field>
-
-          <Field label="Notes">
-            <textarea value={formContent} onChange={e => setFormContent(e.target.value)} rows={4}
-              placeholder="What is it, who is it for, first step…"
-              className="input-premium w-full px-3 py-2 rounded-lg text-[13px] leading-relaxed resize-y min-h-[88px]" />
-          </Field>
-
-          <Section label="Tags">
-            <TagEditor tags={formTags} input={tagInputVal} setInput={setTagInputVal}
-              onAdd={addFormTag} onRemove={removeFormTag} suggestions={allTags} />
-          </Section>
-
-          <Section label="Links" meta={formLinks.length || null}>
-            <div className="space-y-2">
-              {formLinks.map((link, i) => (
-                <LinkRow
-                  key={i}
-                  link={link}
-                  index={i}
-                  total={formLinks.length}
-                  onRemove={removeLinkRow}
-                  onChange={changeLinkRow}
-                  onMoveUp={idx => moveLink(idx, -1)}
-                  onMoveDown={idx => moveLink(idx, 1)}
-                />
-              ))}
-              <button type="button" onClick={addLinkRow} className={addRowCls}>
-                <Plus size={13} /> Add link
+        <form onSubmit={handleSubmit} onPaste={handleFormPaste}
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e); }}>
+          <EditorLayout aside={<>
+            <PropRow icon={Tag} label="Tags" top>
+              <TagEditor tags={formTags} input={tagInputVal} setInput={setTagInputVal}
+                onAdd={addFormTag} onRemove={removeFormTag} suggestions={allTags} />
+            </PropRow>
+            <PropRow icon={Pin} label="Pinned">
+              <button type="button" onClick={() => setFormStarred(s => !s)} aria-pressed={formStarred}
+                className={`${chipCls(formStarred)} !h-7 gap-1.5`}>
+                <Pin size={12} className={formStarred ? 'text-amber-400 fill-amber-400/30' : 'text-slate-500'} />
+                {formStarred ? 'Pinned to top' : 'Pin to top'}
               </button>
-            </div>
-          </Section>
-
-          <Section label="Images" meta={formImages.filter(i => i.url).length || null}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 items-start">
-              {formImages.map((img, i) => {
-                if (!img.url) return null;
-                const isPrimary = hasExplicitPrimary ? !!img.is_primary : i === 0;
-                return (
-                  <div key={i} className="space-y-1.5 min-w-0">
-                    <div className="relative aspect-[4/3] rounded-lg overflow-hidden bg-black/30 border border-white/[0.06]">
-                      <img src={img.url} alt={img.caption || 'Idea image'} className="w-full h-full object-cover" />
-                      <button type="button" onClick={() => handleSetPrimary(i)} aria-pressed={isPrimary}
-                        title={isPrimary ? 'Cover image' : 'Set as cover'}
-                        className={`absolute top-1.5 left-1.5 h-6 px-1.5 rounded-md text-[11px] font-medium border inline-flex items-center gap-1 cursor-pointer transition-colors ${
-                          isPrimary ? 'bg-black/70 border-amber-400/40 text-amber-300' : 'bg-black/60 border-white/10 text-slate-300 hover:text-slate-100'
-                        }`}>
-                        <Star size={10} className={isPrimary ? 'fill-amber-300' : ''} />
-                        {isPrimary ? 'Cover' : <span className="sr-only">Set as cover</span>}
-                      </button>
-                      <button type="button" onClick={() => removeImageRow(i)} aria-label="Remove image"
-                        className="absolute top-1.5 right-1.5 w-6 h-6 inline-flex items-center justify-center rounded-md bg-black/60 border border-white/10 text-slate-300 hover:text-rose-400 cursor-pointer transition-colors">
-                        <X size={12} />
-                      </button>
-                    </div>
-                    <input value={img.caption || ''} onChange={e => changeImageRow(i, img.url, e.target.value)}
-                      placeholder="Caption" aria-label="Image caption"
-                      className="input-premium w-full h-7 px-2 rounded-md text-[12px]" />
-                  </div>
-                );
-              })}
-
-              {uploadingIndex !== null && (
-                <div className="aspect-[4/3] rounded-lg border border-white/[0.08] bg-white/[0.02] flex flex-col items-center justify-center gap-1.5 text-[12px] text-slate-400">
-                  <span className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                  Uploading…
-                </div>
-              )}
-
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploadingIndex !== null}
-                className="aspect-[4/3] rounded-lg border border-dashed border-white/[0.1] text-slate-400 hover:text-slate-100 hover:border-white/[0.18] hover:bg-white/[0.02] transition-colors cursor-pointer flex flex-col items-center justify-center gap-1.5 text-[12px] disabled:opacity-50 disabled:cursor-not-allowed">
-                <ImagePlus size={16} />
-                Upload image
-              </button>
-            </div>
-            <input type="file" ref={fileRef} accept="image/*" className="hidden" onChange={handleImageFile} />
-            {uploadError && (
-              <p className="mt-2 text-[12px] text-amber-400 flex items-center gap-1.5">
-                <AlertTriangle size={12} className="shrink-0" />{uploadError}
+            </PropRow>
+            {editingIdea && (
+              <PropRow icon={Rocket} label="Board">
+                {promotedMap[editingIdea.id] ? (
+                  <button type="button" title="Open the board card this became"
+                    onClick={() => { const to = promotedMap[editingIdea.id]; closeForm(); onOpenConcept?.(to); }}
+                    className="inline-flex items-center gap-1.5 h-7 px-2 text-[12.5px] rounded-md cursor-pointer transition-colors text-accent-300 bg-accent-500/10 border border-accent-500/25 hover:bg-accent-500/15">
+                    <Rocket size={12} /> On the board
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleSendFromEditor} disabled={uploading > 0}
+                    title="Save, then turn this idea into a board card"
+                    className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[12.5px] text-slate-300 border border-white/[0.1] hover:bg-white/[0.05] hover:text-slate-100 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <Rocket size={12} /> Send to board
+                  </button>
+                )}
+              </PropRow>
+            )}
+            {editingIdea?.created_at && (
+              <p className="text-[11.5px] text-slate-600 pt-3 mt-2 border-t border-white/[0.06]">
+                Created {formatDate(editingIdea.created_at)}
               </p>
             )}
-            <p className="mt-1.5 text-[11.5px] text-slate-600">Up to 4 MB each.</p>
-          </Section>
-
-          <button type="button" onClick={() => setFormStarred(s => !s)} aria-pressed={formStarred}
-            className={`${chipCls(formStarred)} gap-1.5`}>
-            {formStarred
-              ? <Pin size={13} className="text-amber-400 fill-amber-400/30" />
-              : <Pin size={13} className="text-slate-500" />}
-            {formStarred ? 'Pinned to top' : 'Pin to top'}
-          </button>
-
+          </>}>
+            <TitleInput value={formTitle} onChange={setFormTitle} placeholder="Idea title" />
+            <DescriptionInput value={formContent} onChange={setFormContent}
+              placeholder="What is it, who is it for, first step…" />
+            <LinksEditor links={formLinks} onChange={setFormLinks} />
+            <IdeaImagesEditor images={formImages} uploading={uploading} error={uploadError}
+              onAddFiles={addImageFiles} onRemove={removeImageRow} onCaption={changeImageCaption}
+              onSetPrimary={handleSetPrimary} />
+          </EditorLayout>
           <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
         </form>
       </Modal>
@@ -1020,6 +1044,12 @@ export default function IdeaVaultView({
           onEdit={(idea) => { handleOpenEdit(idea); setSelectedIdea(null); }}
           promotedTo={promotedMap[selectedIdea.id]}
           onOpenConcept={onOpenConcept}
+          isPinned={pinnedIds.includes(selectedIdea.id)}
+          onTogglePin={() => togglePin(selectedIdea.id)}
+          onPromote={() => { const idea = selectedIdea; setSelectedIdea(null); handlePromote(idea); }}
+          archived={isArchived(selectedIdea.id)}
+          onToggleArchive={() => { toggleArchived(selectedIdea.id); setSelectedIdea(null); }}
+          onDelete={() => { const id = selectedIdea.id; setSelectedIdea(null); setDeleteConfirmId(id); }}
         />
       )}
     </div>
@@ -1036,54 +1066,99 @@ function SectionHeading({ icon: Icon, label, count }) {
   );
 }
 
-/* ─── Detail dialog ───────────────────────────────────── */
-function IdeaDetailModal({ idea, onClose, onEdit, promotedTo, onOpenConcept }) {
+/* ─── Detail dialog ───────────────────────────────────────
+   Same two-pane feel as the editor: content left, properties and actions
+   right (stacked under the content on phones). */
+function IdeaDetailModal({
+  idea, onClose, onEdit, promotedTo, onOpenConcept,
+  isPinned, onTogglePin, onPromote, archived, onToggleArchive, onDelete,
+}) {
   const images = ideaImages(idea);
   const links  = (idea.links || []).filter(l => l && (l.url || l.label));
+  const tags   = idea.tags || [];
 
   const [imgIdx, setImgIdx] = useState(() => Math.max(0, images.findIndex(img => img.is_primary)));
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const closeFullscreen = useCallback(() => setIsFullscreen(false), []);
   const current = images[imgIdx];
 
-  // Escape closes the full-screen view first, not the dialog under it.
-  useEffect(() => {
-    if (!isFullscreen) return;
-    const onKey = e => {
-      if (e.key === 'Escape') { e.stopImmediatePropagation(); setIsFullscreen(false); }
-      else if (e.key === 'ArrowRight' && images.length > 1) setImgIdx(i => (i + 1) % images.length);
-      else if (e.key === 'ArrowLeft' && images.length > 1) setImgIdx(i => (i - 1 + images.length) % images.length);
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [isFullscreen, images.length]);
-
   const navBtn = 'absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-black/60 border border-white/10 text-slate-300 hover:text-white hover:bg-black/80 flex items-center justify-center transition-colors cursor-pointer';
+  const sideBtn = 'w-full h-8 px-2.5 rounded-lg text-[13px] inline-flex items-center gap-2 border border-transparent text-slate-300 hover:bg-white/[0.05] hover:text-slate-100 cursor-pointer transition-colors';
 
   return (
-    <Modal open onClose={onClose} title={idea.title} width={600}
+    <Modal open onClose={onClose} title="Idea" width={780}
       footer={<>
         <button onClick={onClose} className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Close</button>
         <button onClick={() => onEdit(idea)} className="btn-primary h-8 px-4 text-[13px] rounded-lg cursor-pointer inline-flex items-center gap-1.5">
           <Pencil size={13} /> Edit
         </button>
       </>}>
-      <div className="space-y-5">
-        {/* meta */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-slate-500">
-          {idea.created_at && <span>Captured {formatDate(idea.created_at)}</span>}
-          {promotedTo && (
-            <button onClick={() => { onClose(); onOpenConcept?.(promotedTo); }}
-              className="inline-flex items-center gap-1 h-5 px-1.5 text-[11px] rounded-md cursor-pointer transition-colors text-accent-300 bg-accent-500/10 border border-accent-500/25 hover:bg-accent-500/15">
-              <Rocket size={10} /> On the board
+      <EditorLayout aside={<>
+        <PropRow icon={Tag} label="Tags" top={tags.length > 0}>
+          {tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {tags.map(tag => (
+                <span key={tag} className="inline-flex items-center h-6 px-2 rounded-md text-[12px] text-slate-300 bg-white/[0.05] border border-white/[0.08] max-w-full truncate">{tag}</span>
+              ))}
+            </div>
+          ) : <span className="text-[12.5px] text-slate-600">None</span>}
+        </PropRow>
+        <PropRow icon={Pin} label="Pinned">
+          <button type="button" onClick={onTogglePin} aria-pressed={!!isPinned}
+            className={`${chipCls(isPinned)} !h-7 gap-1.5`}>
+            <Pin size={12} className={isPinned ? 'text-amber-400 fill-amber-400/30' : 'text-slate-500'} />
+            {isPinned ? 'Pinned to top' : 'Pin to top'}
+          </button>
+        </PropRow>
+        <PropRow icon={Rocket} label="Board">
+          {promotedTo ? (
+            <button onClick={() => { onClose(); onOpenConcept?.(promotedTo); }} title="Open the board card this became"
+              className="inline-flex items-center gap-1.5 h-7 px-2 text-[12.5px] rounded-md cursor-pointer transition-colors text-accent-300 bg-accent-500/10 border border-accent-500/25 hover:bg-accent-500/15">
+              <Rocket size={12} /> On the board
+            </button>
+          ) : <span className="text-[12.5px] text-slate-600">Not sent yet</span>}
+        </PropRow>
+        {archived && (
+          <PropRow icon={Archive} label="Status">
+            <span className="text-[12.5px] text-slate-400">Archived</span>
+          </PropRow>
+        )}
+
+        <div className="pt-3 mt-2 border-t border-white/[0.06] space-y-0.5">
+          {!promotedTo && (
+            <button type="button" onClick={onPromote} className={sideBtn}>
+              <Rocket size={13} className="text-slate-500" /> Send to board
             </button>
           )}
+          <button type="button" onClick={onToggleArchive} className={sideBtn}>
+            {archived
+              ? <><ArchiveRestore size={13} className="text-slate-500" /> Restore from archive</>
+              : <><Archive size={13} className="text-slate-500" /> Archive</>}
+          </button>
+          <button type="button" onClick={onDelete} className={`${sideBtn} hover:!text-rose-300 hover:!bg-rose-400/[0.06]`}>
+            <Trash2 size={13} className="text-slate-500" /> Delete
+          </button>
+          {idea.created_at && (
+            <p className="text-[11.5px] text-slate-600 pt-2 px-0.5">
+              <Clock size={11} className="inline -mt-px mr-1" />Captured {formatDate(idea.created_at)}
+            </p>
+          )}
         </div>
+      </>}>
+        <h2 className="text-[20px] font-semibold leading-snug tracking-[-0.015em] text-slate-50 break-words">{idea.title}</h2>
+
+        {idea.content ? (
+          <p className="text-[14px] text-slate-300 whitespace-pre-line leading-relaxed break-words">{idea.content}</p>
+        ) : !current && !links.length && (
+          <p className="text-[13px] text-slate-500">No notes yet. Edit to add a description, links or images.</p>
+        )}
 
         {/* images */}
         {current && (
-          <div className="space-y-2">
+          <section className="space-y-2">
             <div className="relative h-56 sm:h-72 rounded-lg overflow-hidden bg-black/30 border border-white/[0.06] flex items-center justify-center group/carousel">
-              <img src={current.url} alt={current.caption || idea.title} className="w-full h-full object-contain" />
+              <img src={current.url} alt={current.caption || idea.title} className="w-full h-full object-contain cursor-zoom-in"
+                onClick={() => setIsFullscreen(true)} />
               <button type="button" onClick={() => setIsFullscreen(true)} title="Open full screen" aria-label="Open full screen"
                 className="absolute top-2.5 right-2.5 w-8 h-8 inline-flex items-center justify-center bg-black/60 border border-white/10 rounded-lg text-slate-300 hover:text-white hover:bg-black/80 transition-[opacity,color,background-color] cursor-pointer [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/carousel:opacity-100 focus-visible:opacity-100">
                 <Maximize2 size={13} />
@@ -1113,72 +1188,37 @@ function IdeaDetailModal({ idea, onClose, onEdit, promotedTo, onOpenConcept }) {
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {idea.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {idea.tags.map(tag => (
-              <span key={tag} className="inline-flex items-center h-6 px-2 rounded-md text-[12px] text-slate-300 bg-white/[0.05] border border-white/[0.08]">{tag}</span>
-            ))}
-          </div>
-        )}
-
-        {idea.content && (
-          <div>
-            <p className={`${labelCls} mb-1.5`}>Notes</p>
-            <p className="text-[13.5px] text-slate-300 whitespace-pre-line leading-relaxed break-words">{idea.content}</p>
-          </div>
+          </section>
         )}
 
         {links.length > 0 && (
-          <div>
-            <p className={`${labelCls} mb-1.5`}>Links</p>
-            <div className="space-y-1.5">
+          <section>
+            <SectionTitle>Links</SectionTitle>
+            <div className="space-y-1">
               {links.map((link, i) => (
                 isValidUrl(link.url) ? (
                   <a key={i} href={link.url} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-2.5 px-3 h-9 rounded-lg border border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.1] transition-colors group/link min-w-0">
-                    <Globe size={13} className="text-slate-500 shrink-0" />
-                    <span className="text-[13px] text-slate-300 truncate flex-1 group-hover/link:text-slate-100">
+                    className="group/link flex items-center gap-2 h-9 px-2.5 -mx-2.5 rounded-lg hover:bg-white/[0.03] transition-colors min-w-0">
+                    <span className="w-6 h-6 rounded-md bg-white/[0.05] flex items-center justify-center shrink-0"><Globe size={12} className="text-slate-400" /></span>
+                    <span className="text-[13px] text-slate-200 truncate flex-1 group-hover/link:text-white">
                       {link.label || new URL(link.url).hostname.replace('www.', '')}
                     </span>
                     <ExternalLink size={12} className="text-slate-600 group-hover/link:text-slate-300 shrink-0" />
                   </a>
                 ) : (
-                  <div key={i} className="flex items-center gap-2.5 px-3 h-9 rounded-lg border border-white/[0.04] min-w-0">
-                    <Globe size={13} className="text-slate-600 shrink-0" />
+                  <div key={i} className="flex items-center gap-2 h-9 px-2.5 -mx-2.5 rounded-lg min-w-0">
+                    <span className="w-6 h-6 rounded-md bg-white/[0.03] flex items-center justify-center shrink-0"><Globe size={12} className="text-slate-600" /></span>
                     <span className="text-[12.5px] text-slate-600 truncate">{link.label || link.url || '—'}</span>
                   </div>
                 )
               ))}
             </div>
-          </div>
+          </section>
         )}
+      </EditorLayout>
 
-        {!current && !idea.content && !links.length && !idea.tags?.length && (
-          <p className="text-[13px] text-slate-500">No notes yet. Edit to add a description, links or images.</p>
-        )}
-      </div>
-
-      {/* Portalled: the dialog surface is transformed, which would trap a
-          fixed overlay inside it. */}
-      {isFullscreen && current && createPortal(
-        <div className="fixed inset-0 z-[120] bg-black/90 flex flex-col items-center justify-center p-4 sm:p-6"
-          onClick={() => setIsFullscreen(false)}>
-          <button onClick={e => { e.stopPropagation(); setIsFullscreen(false); }} aria-label="Close full screen"
-            className="absolute top-4 right-4 w-9 h-9 inline-flex items-center justify-center bg-white/10 hover:bg-white/15 border border-white/10 rounded-lg text-slate-200 hover:text-white transition-colors cursor-pointer">
-            <X size={16} />
-          </button>
-          <img src={current.url} alt={current.caption || idea.title}
-            className="max-w-full max-h-[82vh] object-contain rounded-lg" onClick={e => e.stopPropagation()} />
-          {current.caption && (
-            <p className="mt-4 text-center text-[13px] text-slate-300 max-w-xl leading-relaxed" onClick={e => e.stopPropagation()}>
-              {current.caption}
-            </p>
-          )}
-        </div>,
-        document.body,
+      {isFullscreen && current && (
+        <ImageViewer images={images} index={imgIdx} setIndex={setImgIdx} onClose={closeFullscreen} fallbackAlt={idea.title} />
       )}
     </Modal>
   );

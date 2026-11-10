@@ -215,6 +215,9 @@ export async function updateTask(id, updates) {
       .filter(st => st.title),
     priority: updates.priority,
   };
+  // Only touch the hackathon link when the caller sent one, so other
+  // updates never clear it by accident.
+  if (updates.hackathon_id !== undefined) merged.hackathon_id = updates.hackathon_id || null;
 
   if (hasSupabase()) {
     try {

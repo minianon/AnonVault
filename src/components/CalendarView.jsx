@@ -4,7 +4,7 @@ import {
   Plus, Check, ArrowUpRight, Timer,
 } from 'lucide-react';
 import { board, addItem, moveItem, dueInfo } from '../services/board';
-import { emis, emiStats, payEmi, transactions, formatMoney, useMoneySettings, monthLabel, shiftMonth } from '../services/money';
+import { emis, emiStats, payEmi, transactions, incomeSources, formatMoney, useMoneySettings, monthLabel, shiftMonth } from '../services/money';
 import { sessions, totalForDay, formatDuration } from '../services/focus';
 import { getAllTasksSync } from '../services/tasks';
 import { parseCapture, ymdOf } from '../services/nlp';
@@ -37,6 +37,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
   const cards = board.useAll();
   const emiList = emis.useAll();
   const tx = transactions.useAll();
+  const sourceList = incomeSources.useAll();
   const focusList = sessions.useAll();
   const settings = useMoneySettings();
   const fmt = n => formatMoney(n, settings.currency);
@@ -77,8 +78,10 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
         push(`${m}-${String(day).padStart(2, '0')}`, { kind: 'emi', id: e.id + m, title: e.name, sub: fmt(st.amount), done: paid, emi: e, month: m });
       }
     }
+    const sourceIds = new Set(sourceList.map(s => s.id));
     for (const t of tx) {
       if (t.type !== 'income') continue;
+      if (t.source_id && !sourceIds.has(t.source_id)) continue; // tick left behind by a deleted source
       push(t.date, { kind: 'income', id: t.id, title: t.note || 'Income', sub: '+' + fmt(t.amount) });
     }
     for (const t of getAllTasksSync()) {
@@ -91,7 +94,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     return map;
     // tasksVersion re-reads the checklist cache after edits elsewhere
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applications, cards, emiList, tx, rangeFrom, rangeTo, tasksVersion, settings.currency, today]);
+  }, [applications, cards, emiList, tx, sourceList, rangeFrom, rangeTo, tasksVersion, settings.currency, today]);
 
   const visible = date => (byDate.get(date) || []).filter(e => !hidden.has(e.kind));
   const dayEvents = visible(selected);

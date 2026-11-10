@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Trash2, Edit3, X, ChevronDown, Check, RotateCcw,
   ChevronLeft, ChevronRight as ChevronRightIcon, Repeat2,
-  ListChecks, EyeOff, CheckCheck, CalendarRange, NotebookPen
+  ListChecks, EyeOff, CheckCheck, CalendarRange, NotebookPen, Flag, Calendar
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, addTask, updateTask, deleteTask,
@@ -10,7 +10,8 @@ import {
 } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { getNote, setNote } from '../services/journal';
-import { PageHeader, Card, CardHeader, Empty, Progress, inputCls, Select } from './ui';
+import { PageHeader, Card, CardHeader, Empty, Progress, Select, Modal } from './ui';
+import { EditorLayout, PropRow, TitleInput, SectionTitle, DueField } from './editor';
 
 /* ── helpers ───────────────────────────────────────────── */
 function toDateStr(date) {
@@ -45,13 +46,7 @@ const PRIORITY_META  = {
 
 const RECUR_SHORT = { daily: 'Daily', weekdays: 'Weekdays', weekends: 'Weekends' };
 
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const RECUR_OPTS = [
-  { value: 'daily',    label: 'Every day'          },
-  { value: 'weekdays', label: 'Weekdays (Mon–Fri)' },
-  { value: 'weekends', label: 'Weekends (Sat–Sun)' },
-  { value: 'weekly',   label: 'Weekly (custom)'    }
-];
+const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /* ── Checkbox ────────────────────────────────────────────── */
 function Checkbox({ checked, onChange, size = 'md', disabled = false }) {
@@ -192,41 +187,99 @@ function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, hac
   );
 }
 
-/* ── Priority selector ───────────────────────────────────── */
-function PrioritySelector({ value, onChange }) {
-  const opts = ['high', 'medium', 'low'];
+/* ── Editor options ──────────────────────────────────────── */
+const PRIORITY_OPTS = [
+  { value: 'high',   label: 'High',   color: '#f5768a' },
+  { value: 'medium', label: 'Medium', color: '#f0b445' },
+  { value: 'low',    label: 'Low',    color: '#6c6c75' },
+];
+
+// 'none' is the one-off case; everything else maps onto `recurrence`.
+const REPEAT_OPTS = [
+  { value: 'none',     label: 'One-off'                  },
+  { value: 'daily',    label: 'Daily'                    },
+  { value: 'weekdays', label: 'Weekdays', hint: 'Mon–Fri' },
+  { value: 'weekends', label: 'Weekends', hint: 'Sat–Sun' },
+  { value: 'weekly',   label: 'Custom days'              },
+];
+
+const DAY_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+const newSubtaskId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* ── Subtasks editor ─────────────────────────────────────────
+   Plain rows you can type into, plus a dashed "add" row like LinksEditor's.
+   Enter on the add row adds and stays there for the next one; Enter on a
+   row opens a new one below it; Backspace on an empty row removes it. */
+function SubtasksEditor({ subtasks, onChange, draft, onDraft, onCommitDraft }) {
+  const rowRefs  = useRef({});
+  const draftRef = useRef(null);
+  const focusAfter = useRef(null);
+
+  useEffect(() => {
+    const id = focusAfter.current;
+    if (id == null) return;
+    focusAfter.current = null;
+    (id === '__draft' ? draftRef.current : rowRefs.current[id])?.focus();
+  }, [subtasks]);
+
+  const setTitle = (i, value) => onChange(subtasks.map((s, j) => (j === i ? { ...s, title: value } : s)));
+  const remove = i => onChange(subtasks.filter((_, j) => j !== i));
+
+  const onRowKey = (e, i) => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      if (i === subtasks.length - 1) { draftRef.current?.focus(); return; }
+      const st = { id: newSubtaskId(), title: '' };
+      focusAfter.current = st.id;
+      onChange([...subtasks.slice(0, i + 1), st, ...subtasks.slice(i + 1)]);
+    } else if (e.key === 'Backspace' && !subtasks[i].title) {
+      e.preventDefault();
+      focusAfter.current = i > 0 ? subtasks[i - 1].id : '__draft';
+      remove(i);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-3 p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-      {opts.map(key => {
-        const meta = PRIORITY_META[key];
-        const active = value === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => onChange(key)}
-            className={`h-8 px-3 rounded-md inline-flex items-center justify-center gap-2 text-[13px] font-medium transition-colors cursor-pointer ${
-              active ? 'bg-white/[0.09] text-slate-100 shadow-[0_1px_2px_rgba(0,0,0,0.4)]' : 'text-slate-500 hover:text-slate-200'
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-            {meta.label}
-          </button>
-        );
-      })}
-    </div>
+    <section>
+      <SectionTitle right={subtasks.length ? subtasks.length : null}>Subtasks</SectionTitle>
+      <div className="space-y-1">
+        {subtasks.map((st, i) => (
+          <div key={st.id || i}
+            className="group/st flex items-center gap-2.5 h-9 px-2.5 -mx-2.5 rounded-lg hover:bg-white/[0.03] focus-within:bg-white/[0.03] transition-colors">
+            <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
+            <input ref={el => { rowRefs.current[st.id] = el; }}
+              value={st.title} onChange={e => setTitle(i, e.target.value)} onKeyDown={e => onRowKey(e, i)}
+              placeholder="Subtask" aria-label={`Subtask ${i + 1}`}
+              className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-200 placeholder:text-slate-600 outline-none" />
+            <button type="button" onClick={() => remove(i)}
+              className="icon-btn !w-7 !h-7 shrink-0 hover:!text-rose-400 cursor-pointer sm:opacity-0 sm:group-hover/st:opacity-100 focus:opacity-100"
+              title="Remove subtask" aria-label="Remove subtask">
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 h-9 px-2.5 -mx-2.5 rounded-lg border border-dashed border-white/[0.08] focus-within:border-white/[0.18] focus-within:border-solid transition-colors">
+          <Plus size={13} className="text-slate-500 shrink-0" />
+          <input ref={draftRef} value={draft} onChange={e => onDraft(e.target.value)} onBlur={onCommitDraft}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); onCommitDraft(); }
+              else if (e.key === 'Backspace' && !draft && subtasks.length) {
+                e.preventDefault(); rowRefs.current[subtasks[subtasks.length - 1].id]?.focus();
+              }
+            }}
+            placeholder="Add subtask" aria-label="Add subtask"
+            className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-200 placeholder:text-slate-600 outline-none" />
+        </div>
+      </div>
+    </section>
   );
 }
 
-function FieldLabel({ children }) {
-  return <span className="block text-[12px] font-medium text-slate-400 mb-1.5">{children}</span>;
-}
-
-const CHOICE_ON  = 'border-white/[0.16] bg-white/[0.07] text-slate-100';
-const CHOICE_OFF = 'border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]';
-
-/* ── Task Form Modal ─────────────────────────────────────── */
-function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, showToast, applications }) {
+/* ── Task editor ─────────────────────────────────────────────
+   Built from the shared editor kit (editor.jsx) so it matches Board's card
+   editor: content on the left, properties on the right. */
+function TaskFormModal({ isOpen, onClose, onSave, onDelete, editingTask, defaultDate, showToast, applications }) {
   const [title,         setTitle]         = useState('');
   const [priority,      setPriority]      = useState('medium');
   const [isRecurring,   setIsRecurring]   = useState(false);
@@ -236,7 +289,6 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
   const [subtasks,      setSubtasks]      = useState([]);
   const [hackathonId,   setHackathonId]   = useState('');
   const [stInput,       setStInput]       = useState('');
-  const stInputRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -258,16 +310,22 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
     setStInput('');
   }, [isOpen, editingTask, defaultDate]);
 
-  const addSubtask = () => {
+  const commitDraft = () => {
     const t = stInput.trim();
     if (!t) return;
-    setSubtasks(prev => [...prev, { id: Date.now().toString(), title: t }]);
+    setSubtasks(prev => [...prev, { id: newSubtaskId(), title: t }]);
     setStInput('');
-    stInputRef.current?.focus();
   };
 
   const toggleDay = day =>
     setRecurrenceDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+
+  const repeat = isRecurring ? recurrence : 'none';
+  const setRepeat = v => {
+    if (v === 'none') { setIsRecurring(false); return; }
+    setIsRecurring(true);
+    setRecurrence(v);
+  };
 
   const handleSave = () => {
     if (!title.trim()) { showToast?.('error', 'Title Required', 'Please enter a task title.'); return; }
@@ -275,153 +333,86 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
     if (isRecurring && recurrence === 'weekly' && recurrenceDays.length === 0) {
       showToast?.('error', 'Select Days', 'Choose at least one day for weekly recurrence.'); return;
     }
+    // A subtask still sitting in the add row counts — Ctrl+Enter shouldn't drop it.
+    const pending = stInput.trim();
+    const allSubs = pending ? [...subtasks, { id: newSubtaskId(), title: pending }] : subtasks;
     onSave({ title, priority, is_recurring: isRecurring, recurrence, recurrence_days: recurrenceDays,
-             date: isRecurring ? null : taskDate, subtasks: subtasks.filter(s => s.title.trim()),
+             date: isRecurring ? null : taskDate, subtasks: allSubs.filter(s => s.title.trim()),
              hackathon_id: hackathonId || null });
   };
 
-  if (!isOpen) return null;
+  const hackathons = (applications || []).filter(a => a && a.name);
 
   return (
-    <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="modal-surface w-full max-w-lg rounded-xl flex flex-col overflow-hidden max-h-[92vh]"
-           onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 h-12 border-b border-white/[0.06] shrink-0">
-          <h2 className="text-[14px] font-semibold text-slate-100">{editingTask ? 'Edit task' : 'New task'}</h2>
-          <button onClick={onClose} className="icon-btn -mr-2 cursor-pointer" aria-label="Close"><X size={15} /></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-
-          {/* Title */}
-          <label className="block">
-            <FieldLabel>Title <span className="text-rose-400">*</span></FieldLabel>
-            <input autoFocus type="text" placeholder="e.g. Review pull requests"
-              value={title} onChange={e => setTitle(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSave()}
-              className={inputCls} />
-          </label>
-
-          {/* Priority */}
-          <div>
-            <FieldLabel>Priority</FieldLabel>
-            <PrioritySelector value={priority} onChange={setPriority} />
-          </div>
-
-          {/* Recurring toggle */}
-          <div className="flex items-center justify-between gap-3 px-3.5 py-3 rounded-lg border border-white/[0.06] bg-white/[0.02]">
-            <div className="flex items-center gap-3 min-w-0">
-              <Repeat2 size={15} className="text-slate-500 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium text-slate-200">Recurring task</p>
-                <p className="text-[12px] text-slate-500">Repeats on a schedule</p>
-              </div>
-            </div>
-            <button type="button" role="switch" aria-checked={isRecurring} aria-label="Recurring task"
-              onClick={() => setIsRecurring(p => !p)}
-              className={`w-9 h-5 rounded-full transition-colors cursor-pointer relative shrink-0 ${isRecurring ? 'bg-accent-500' : 'bg-white/[0.12]'}`}>
-              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${isRecurring ? 'left-[18px]' : 'left-0.5'}`} />
-            </button>
-          </div>
-
-          {/* Recurring / date options */}
-          {isRecurring ? (
-            <div className="space-y-4">
-              <div>
-                <FieldLabel>Frequency</FieldLabel>
-                <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
-                  {RECUR_OPTS.map(opt => (
-                    <button key={opt.value} type="button" onClick={() => setRecurrence(opt.value)}
-                      className={`h-9 px-3 rounded-lg text-[13px] text-left transition-colors cursor-pointer border ${
-                        recurrence === opt.value ? CHOICE_ON : CHOICE_OFF
-                      }`}>{opt.label}
+    <Modal open={isOpen} onClose={onClose} title={editingTask ? 'Edit task' : 'New task'} width={780}
+      footer={<>
+        {editingTask && (
+          <button type="button" onClick={onDelete}
+            className="btn-danger h-8 px-3 rounded-lg text-[13px] cursor-pointer mr-auto inline-flex items-center gap-1.5">
+            <Trash2 size={13} /><span className="hidden sm:inline">Delete</span>
+          </button>
+        )}
+        <span className="hidden sm:flex items-center gap-1 text-[11.5px] text-slate-600 mr-1"><span className="kbd">Ctrl</span><span className="kbd">↵</span> save</span>
+        <button type="button" onClick={onClose} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Cancel</button>
+        <button type="button" onClick={handleSave} className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">
+          {editingTask ? 'Save' : 'Add task'}
+        </button>
+      </>}>
+      <div onKeyDown={e => {
+        if (e.key !== 'Enter') return;
+        // Ctrl/Cmd+Enter saves from anywhere; plain Enter in the title saves too, as it always has.
+        if (e.metaKey || e.ctrlKey || (!e.shiftKey && e.target.getAttribute?.('aria-label') === 'Title')) {
+          e.preventDefault(); handleSave();
+        }
+      }}>
+        <EditorLayout aside={<>
+          <PropRow icon={Flag} label="Priority">
+            <Select className="w-full" size="sm" value={priority} onChange={setPriority} ariaLabel="Priority"
+              options={PRIORITY_OPTS} />
+          </PropRow>
+          <PropRow icon={Repeat2} label="Repeat">
+            <Select className="w-full" size="sm" value={repeat} onChange={setRepeat} ariaLabel="Repeat"
+              options={REPEAT_OPTS} />
+          </PropRow>
+          {isRecurring && recurrence === 'weekly' && (
+            <PropRow label="On" top>
+              <div className="flex flex-wrap gap-1">
+                {DAY_SHORT.map((short, i) => {
+                  const on = recurrenceDays.includes(i);
+                  return (
+                    <button key={i} type="button" onClick={() => toggleDay(i)}
+                      aria-pressed={on} aria-label={DAY_LABELS[i]} title={DAY_LABELS[i]}
+                      className={`h-7 min-w-[27px] px-1 rounded-md text-[11.5px] font-medium border transition-colors cursor-pointer ${
+                        on ? 'border-white/[0.16] bg-white/[0.09] text-slate-100'
+                           : 'border-white/[0.07] text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
+                      {short}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-              {recurrence === 'weekly' && (
-                <div>
-                  <FieldLabel>On these days</FieldLabel>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {DAY_LABELS.map((label, i) => (
-                      <button key={i} type="button" onClick={() => toggleDay(i)}
-                        aria-pressed={recurrenceDays.includes(i)}
-                        className={`h-8 min-w-[40px] px-2 rounded-md text-[12px] font-medium transition-colors cursor-pointer border ${
-                          recurrenceDays.includes(i) ? CHOICE_ON : CHOICE_OFF
-                        }`}>{label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <label className="block">
-              <FieldLabel>Date <span className="text-rose-400">*</span></FieldLabel>
-              <input type="date" value={taskDate} onChange={e => setTaskDate(e.target.value)}
-                className={`${inputCls} cursor-pointer`} />
-            </label>
+            </PropRow>
           )}
-
+          {!isRecurring && (
+            <PropRow icon={Calendar} label="Date" top>
+              <DueField date={taskDate} onDate={setTaskDate} withTime={false} placeholder="Pick a date" />
+            </PropRow>
+          )}
           {/* Hackathon link — turns a Timeline entry into a checklist owner
               (register, form team, record demo, submit) instead of the two
               sections running in parallel with no connection. */}
           {(applications || []).length > 0 && (
-            <label className="block">
-              <FieldLabel>
-                Part of a hackathon <span className="font-normal text-slate-500">(optional)</span>
-              </FieldLabel>
-              <Select className="w-full" value={hackathonId || ''} onChange={setHackathonId} ariaLabel="Linked hackathon"
-                options={[{ value: '', label: 'Not linked' },
-                  ...(applications || []).filter(a => a && a.name).map(a => ({ value: a.id, label: a.name }))]} />
-            </label>
+            <PropRow icon={CalendarRange} label="Hackathon">
+              <Select className="w-full" size="sm" value={hackathonId || ''} onChange={setHackathonId} ariaLabel="Linked hackathon"
+                options={[{ value: '', label: 'Not linked' }, ...hackathons.map(a => ({ value: a.id, label: a.name }))]} />
+            </PropRow>
           )}
-
-          {/* Subtasks */}
-          <div>
-            <FieldLabel>Subtasks</FieldLabel>
-            {subtasks.length > 0 && (
-              <ul className="mb-2 rounded-lg border border-white/[0.06] divide-y divide-white/[0.04]">
-                {subtasks.map((st, i) => (
-                  <li key={st.id || i} className="flex items-center gap-2.5 h-9 pl-3 pr-1">
-                    <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
-                    <span className="text-[13px] text-slate-300 flex-1 min-w-0 truncate">{st.title}</span>
-                    <button type="button"
-                      onClick={() => setSubtasks(prev => prev.filter((_, idx) => idx !== i))}
-                      className="icon-btn !w-7 !h-7 hover:!text-rose-400 cursor-pointer shrink-0"
-                      title="Delete subtask" aria-label="Delete subtask">
-                      <Trash2 size={12} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex gap-2">
-              <input ref={stInputRef} type="text" placeholder="Add subtask… (press Enter)"
-                value={stInput} onChange={e => setStInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSubtask())}
-                className="input-premium flex-1 min-w-0 h-9 px-3 rounded-lg text-[13px]" />
-              <button type="button" onClick={addSubtask}
-                className="btn-ghost h-9 px-3 rounded-lg text-[13px] cursor-pointer shrink-0">
-                Add
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2 bg-white/[0.015] shrink-0">
-          <button type="button" onClick={onClose}
-            className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Cancel</button>
-          <button type="button" onClick={handleSave}
-            className="btn-primary h-8 px-3 text-[13px] rounded-lg cursor-pointer">
-            {editingTask ? 'Save changes' : 'Add task'}
-          </button>
-        </div>
+        </>}>
+          <TitleInput value={title} onChange={setTitle} placeholder="Task title" />
+          <SubtasksEditor subtasks={subtasks} onChange={setSubtasks}
+            draft={stInput} onDraft={setStInput} onCommitDraft={commitDraft} />
+        </EditorLayout>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -853,6 +844,7 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
         isOpen={isFormOpen}
         onClose={() => { setIsFormOpen(false); setEditingTask(null); }}
         onSave={handleSave}
+        onDelete={() => { const t = editingTask; setIsFormOpen(false); setEditingTask(null); setDeleteTarget(t); }}
         editingTask={editingTask}
         defaultDate={selectedDate}
         showToast={showToast}

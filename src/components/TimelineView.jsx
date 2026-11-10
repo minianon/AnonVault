@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Plus, Minus, Search, ArrowUpDown, ExternalLink,
+  Plus, Search, ArrowUpDown, ExternalLink,
   Edit3, Trash2, Calendar, Link as LinkIcon,
-  ChevronDown, ChevronUp, ChevronRight, ListCollapse,
-  X, Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, History,
-  ListChecks
+  ChevronDown, ChevronRight, ListCollapse,
+  Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, History,
+  ListChecks, Gift
 } from 'lucide-react';
 import { formatDate, getStatusStyles, sortApplicationsByDeadline, groupApplicationsByMonth } from '../utils/helpers';
 import { getHackathonProgress } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
-import { PageHeader, Empty, Progress, inputCls, Select, Combo, Modal, Field } from './ui';
+import { ymdLocal, hostOf } from '../utils/links';
+import { PageHeader, Empty, Progress, Select, Combo, Modal } from './ui';
+import { EditorLayout, PropRow, TitleInput, DescriptionInput, DueField, LinksEditor, SectionTitle } from './editor';
 
 /* Quiet status dot per hackathon status (labels come from getStatusStyles). */
 const STATUS_DOT = {
@@ -34,6 +36,23 @@ const PRIORITY_OPTIONS = [
   { value: 'medium', label: 'Normal', color: '#6c6c75' },
   { value: 'high', label: 'Starred', color: '#f0b445' },
 ];
+
+/* Whole days from today to a local YYYY-MM-DD (negative = past). */
+function daysUntil(ymd) {
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split('-').map(Number);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(y, m - 1, d) - today) / 86400000);
+}
+
+function daysLeftText(days) {
+  if (days == null) return '';
+  if (days === 0) return 'Due today';
+  if (days === 1) return 'Due tomorrow';
+  if (days > 1) return `${days} days left`;
+  return `${Math.abs(days)} day${days === -1 ? '' : 's'} ago`;
+}
 
 /* Small neutral badge used for status / perks. */
 const BADGE = 'inline-flex items-center gap-1 text-[11.5px] px-1.5 h-5 rounded-md bg-white/[0.04] border border-white/[0.06] text-slate-400 whitespace-nowrap';
@@ -126,7 +145,8 @@ export default function TimelineView({
   const [editingApp, setEditingApp] = useState(null);
   const [formName, setFormName] = useState('');
   const [formLink, setFormLink] = useState('');
-  const [formDaysLeft, setFormDaysLeft] = useState('1');
+  // Deadline as a local YYYY-MM-DD for DueField; saved as before (noon ISO).
+  const [formDate, setFormDate] = useState('');
   const [formLinks, setFormLinks] = useState([]);
   const [formStarred, setFormStarred] = useState(false);
   const [formStatus, setFormStatus] = useState('pending');
@@ -163,7 +183,10 @@ export default function TimelineView({
   const resetForm = () => {
     setFormName(''); setFormLink('');
     setFormLinks([]);
-    setFormDaysLeft('1');
+    // New events default to tomorrow, as the old "1 day" stepper did.
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setFormDate(ymdLocal(tomorrow));
     setFormStarred(false); setFormStatus('pending');
     setFormNotes(''); setFormRetro(''); 
     setFormCompany('');
@@ -184,15 +207,13 @@ export default function TimelineView({
     setEditingApp(app);
     setFormName(app.name); setFormLink(app.link || '');
     setFormLinks(app.links || []);
-    if (app.deadline) {
-      const targetDate = new Date(app.deadline);
-      targetDate.setHours(0, 0, 0, 0);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const diffTime = targetDate - today;
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      setFormDaysLeft(String(Math.max(0, diffDays)));
-    } else { setFormDaysLeft('1'); }
+    if (app.deadline && !isNaN(new Date(app.deadline))) {
+      setFormDate(ymdLocal(new Date(app.deadline)));
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setFormDate(ymdLocal(tomorrow));
+    }
     setFormStarred(app.priority === 'high');
     setFormStatus(app.status || 'pending');
     setFormNotes(app.notes || ''); setFormRetro(app.retro || '');
@@ -210,14 +231,22 @@ export default function TimelineView({
       showToast?.('error', 'Name Required', 'Please enter the hackathon or event name.');
       return;
     }
-    const days = parseInt(formDaysLeft, 10);
-    if (isNaN(days) || days < 0) {
-      showToast?.('error', 'Invalid Days', 'Please enter a valid non-negative number of days.');
+    if (!formDate) {
+      showToast?.('error', 'Deadline Required', 'Pick a deadline for this hackathon.');
+      return;
+    }
+    // Same rule as the old "days left" stepper (no negative days), except an
+    // event that has already passed can still be edited without its date
+    // being forced forward to today.
+    const unchangedDate = editingApp?.deadline && !isNaN(new Date(editingApp.deadline))
+      && ymdLocal(new Date(editingApp.deadline)) === formDate;
+    if (daysUntil(formDate) < 0 && !unchangedDate) {
+      showToast?.('error', 'Invalid Date', 'Please pick today or a later date.');
       return;
     }
 
-    const calculatedDeadline = new Date();
-    calculatedDeadline.setDate(calculatedDeadline.getDate() + days);
+    const [dy, dm, dd] = formDate.split('-').map(Number);
+    const calculatedDeadline = new Date(dy, dm - 1, dd);
     calculatedDeadline.setHours(12, 0, 0, 0); // Standardize to noon for even tracking
 
     const appPayload = {
@@ -240,28 +269,13 @@ export default function TimelineView({
     setIsFormOpen(false); resetForm();
   };
 
-  const addLinkRow = () => {
-    setFormLinks([...formLinks, { url: '', label: '' }]);
-  };
-
-  const removeLinkRow = (idx) => {
-    setFormLinks(formLinks.filter((_, i) => i !== idx));
-  };
-
-  const changeLinkRow = (idx, link) => {
-    const updated = [...formLinks];
-    updated[idx] = link;
-    setFormLinks(updated);
-  };
-
-  const moveLink = (index, direction) => {
-    const nextIdx = index + direction;
-    if (nextIdx < 0 || nextIdx >= formLinks.length) return;
-    const updated = [...formLinks];
-    const temp = updated[index];
-    updated[index] = updated[nextIdx];
-    updated[nextIdx] = temp;
-    setFormLinks(updated);
+  // Ctrl/Cmd+Enter saves. requestSubmit keeps native checks (URL field).
+  const formRef = useRef(null);
+  const onFormKeyDown = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      formRef.current?.requestSubmit();
+    }
   };
 
   const handleDeleteClick = (id) => setDeleteConfirmId(id);
@@ -291,15 +305,7 @@ export default function TimelineView({
     [applications]
   );
 
-  const deadlinePreview = (() => {
-    const days = parseInt(formDaysLeft, 10);
-    if (isNaN(days) || days < 0) return undefined;
-    if (days === 0) return 'Due today';
-    if (days === 1) return 'Due tomorrow';
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return `Due ${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) })}`;
-  })();
+  const formDaysLeft = daysUntil(formDate);
 
   const toggleMonth = (month) =>
     setExpandedMonths(prev => ({ ...prev, [month]: prev[month] === false ? true : false }));
@@ -363,7 +369,6 @@ export default function TimelineView({
   const toolBtn = 'h-8 px-2.5 rounded-lg text-[12.5px] inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap';
   const toggleOn = 'bg-white/[0.06] border border-white/[0.14] text-slate-100 transition-colors';
   const btnGhost = 'btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer';
-  const stepBtn = 'btn-ghost w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer select-none';
 
   return (
     <div ref={rootRef} className="flex-1 h-full flex flex-col overflow-hidden relative bg-[var(--bg)]">
@@ -596,188 +601,92 @@ export default function TimelineView({
         </div>
       </div>
 
-      {/* ── ADD / EDIT MODAL ── */}
+      {/* ── ADD / EDIT MODAL ──
+          Issue-view layout from the shared editor kit: content on the left,
+          properties on the right (stacked, content first, on phones). */}
       <Modal
         open={isFormOpen}
         onClose={closeForm}
         title={editingApp ? 'Edit hackathon' : 'New hackathon'}
-        width={540}
+        width={780}
         footer={<>
           {editingApp && (
             <button type="button" onClick={handleDeleteFromForm}
               className="btn-danger h-8 px-3 rounded-lg text-[13px] cursor-pointer mr-auto inline-flex items-center gap-1.5">
-              <Trash2 size={13} /> Delete
+              <Trash2 size={13} /><span className="hidden sm:inline">Delete</span>
             </button>
           )}
+          <span className="hidden sm:flex items-center gap-1 text-[11.5px] text-slate-600 mr-1"><span className="kbd">Ctrl</span><span className="kbd">↵</span> save</span>
           <button type="button" onClick={closeForm} className={btnGhost}>Cancel</button>
-          <button type="submit" form="hackathon-form" className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">
-            {editingApp ? 'Save changes' : 'Add hackathon'}
+          <button type="submit" form="hackathon-form"
+            className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">
+            {editingApp ? 'Save' : 'Add hackathon'}
           </button>
         </>}
       >
-        <form id="hackathon-form" onSubmit={handleSubmit} className="space-y-4">
-          <Field label="Event name">
-            <input type="text" required placeholder="e.g. HackMIT 2025" value={formName}
-              onChange={e => setFormName(e.target.value)}
-              className="input-premium w-full h-10 px-3 rounded-lg text-[14.5px] font-medium" />
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-4">
-            <Field label="Organiser">
+        <form id="hackathon-form" ref={formRef} onSubmit={handleSubmit} onKeyDown={onFormKeyDown}>
+          <EditorLayout aside={<>
+            <PropRow icon={Briefcase} label="Organiser">
               <Combo value={formCompany} onChange={setFormCompany} placeholder="e.g. Google, MLH"
-                suggestions={companySuggestions} inputClassName="h-9" ariaLabel="Organiser" icon={Briefcase} />
-            </Field>
-
-            <Group label="Deadline" hint={deadlinePreview}>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setFormDaysLeft(prev => String(Math.max(0, parseInt(prev, 10) - 1)))}
-                  className={stepBtn}
-                  aria-label="One day fewer"
-                >
-                  <Minus size={14} />
-                </button>
-
-                <div className="relative flex-1 min-w-0">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    required
-                    aria-label="Days until deadline"
-                    value={formDaysLeft}
-                    onChange={e => {
-                      const val = e.target.value.replace(/[^0-9]/g, '');
-                      setFormDaysLeft(val || '0');
-                    }}
-                    className="input-premium w-full h-9 pl-2 pr-9 text-center text-[13px] font-medium tabular-nums rounded-lg"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-slate-500 pointer-events-none select-none">
-                    {parseInt(formDaysLeft, 10) === 1 ? 'day' : 'days'}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setFormDaysLeft(prev => String(parseInt(prev, 10) + 1))}
-                  className={stepBtn}
-                  aria-label="One day more"
-                >
-                  <Plus size={14} />
-                </button>
-
-                {/* Hidden date picker triggered by the calendar button */}
-                <div
-                  onClick={(e) => {
-                    const input = e.currentTarget.querySelector('input[type="date"]');
-                    if (input) {
-                      if (typeof input.showPicker === 'function') {
-                        input.showPicker();
-                      } else {
-                        input.click();
-                      }
-                    }
-                  }}
-                  className={`${stepBtn} relative`}
-                  title="Pick a date"
-                  role="button"
-                  aria-label="Pick a date"
-                >
-                  <Calendar size={14} />
-                  <input
-                    type="date"
-                    tabIndex={-1}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => {
-                      if (e.target.value) {
-                        const selected = new Date(e.target.value + 'T00:00:00');
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const diffTime = selected - today;
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                        setFormDaysLeft(String(Math.max(0, diffDays)));
-                      }
-                    }}
-                    className="absolute inset-0 opacity-0 pointer-events-none w-0 h-0"
-                  />
-                </div>
-              </div>
-            </Group>
-
-            <Field label="Status">
-              <Select className="w-full" value={formStatus} onChange={setFormStatus} ariaLabel="Status"
+                suggestions={companySuggestions} inputClassName="h-8" ariaLabel="Organiser" />
+            </PropRow>
+            <PropRow icon={Calendar} label="Deadline" top>
+              <DueField date={formDate} onDate={setFormDate} withTime={false} placeholder="Deadline" />
+              {formDate && (
+                <p className={`text-[11.5px] mt-1 ${
+                  formDaysLeft < 0 ? 'text-rose-400' : formDaysLeft <= 2 ? 'text-amber-400' : 'text-slate-500'}`}>
+                  {daysLeftText(formDaysLeft)}
+                </p>
+              )}
+            </PropRow>
+            <PropRow icon={CheckCircle2} label="Status">
+              <Select className="w-full" size="sm" value={formStatus} onChange={setFormStatus} ariaLabel="Status"
                 options={STATUS_OPTIONS} />
-            </Field>
-
-            <Field label="Priority">
-              <Select className="w-full" value={formStarred ? 'high' : 'medium'}
+            </PropRow>
+            <PropRow icon={Star} label="Priority">
+              <Select className="w-full" size="sm" value={formStarred ? 'high' : 'medium'}
                 onChange={v => setFormStarred(v === 'high')} ariaLabel="Priority"
                 options={PRIORITY_OPTIONS} />
-            </Field>
-          </div>
-
-          <Field label="Event link">
-            <div className="relative">
-              <LinkIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-              <input type="url" placeholder="https://…" value={formLink}
-                onChange={e => setFormLink(e.target.value)}
-                className={`${inputCls} !pl-8`} />
-            </div>
-          </Field>
-
-          <Group label="Perks">
-            <div className="flex flex-wrap gap-1.5">
-              <PerkChip on={formPpi} onClick={() => setFormPpi(p => !p)}
-                icon={ShieldCheck} tone="text-emerald-400" label="PPI" title="Offers a pre-placement interview" />
-              <PerkChip on={formTravel} onClick={() => setFormTravel(t => !t)}
-                icon={Flame} tone="text-amber-400" label="Travel covered" title="Travel is reimbursed" />
-              <PerkChip on={formOnsite} onClick={() => setFormOnsite(o => !o)}
-                icon={MapPin} tone="text-accent-400" label="Onsite" title="In-person event" />
-              <PerkChip on={formRemote} onClick={() => setFormRemote(r => !r)}
-                icon={Globe} tone="text-slate-200" label="Remote" title="Join from anywhere" />
-            </div>
-          </Group>
-
-          <Field label="Notes">
-            <textarea rows={4} placeholder="Project ideas, team, requirements…" value={formNotes}
-              onChange={e => setFormNotes(e.target.value)}
-              className="input-premium w-full px-3 py-2 rounded-lg text-[13px] resize-y min-h-[88px] leading-relaxed" />
-          </Field>
-
-          {/* Retro, only once the event has resolved. The funnel counted
-              outcomes but recorded nothing about them. */}
-          {(formStatus === 'offered' || formStatus === 'rejected') && (
-            <Field label="Retrospective" hint="What worked, what did not, what to do differently.">
-              <textarea rows={3} placeholder="Looking back…" value={formRetro}
-                onChange={e => setFormRetro(e.target.value)}
-                className="input-premium w-full px-3 py-2 rounded-lg text-[13px] resize-y min-h-[72px] leading-relaxed" />
-            </Field>
-          )}
-
-          {/* Links Section */}
-          <Group label="Links" hint={formLinks.length === 0 ? 'Repo, Devpost, Discord, slides…' : undefined}>
-            {formLinks.length > 0 && (
-              <div className="space-y-2 mb-2">
-                {formLinks.map((link, i) => (
-                  <LinkRow
-                    key={i}
-                    link={link}
-                    index={i}
-                    total={formLinks.length}
-                    onRemove={removeLinkRow}
-                    onChange={changeLinkRow}
-                    onMoveUp={idx => moveLink(idx, -1)}
-                    onMoveDown={idx => moveLink(idx, 1)}
-                  />
-                ))}
+            </PropRow>
+            <PropRow icon={Gift} label="Perks" top>
+              <div role="group" aria-label="Perks" className="flex flex-wrap gap-1">
+                <PerkChip on={formPpi} onClick={() => setFormPpi(p => !p)}
+                  icon={ShieldCheck} tone="text-emerald-400" label="PPI" title="Offers a pre-placement interview" />
+                <PerkChip on={formTravel} onClick={() => setFormTravel(t => !t)}
+                  icon={Flame} tone="text-amber-400" label="Travel covered" title="Travel is reimbursed" />
+                <PerkChip on={formOnsite} onClick={() => setFormOnsite(o => !o)}
+                  icon={MapPin} tone="text-accent-400" label="Onsite" title="In-person event" />
+                <PerkChip on={formRemote} onClick={() => setFormRemote(r => !r)}
+                  icon={Globe} tone="text-slate-200" label="Remote" title="Join from anywhere" />
               </div>
+            </PropRow>
+          </>}>
+            <TitleInput value={formName} onChange={setFormName} placeholder="Event name, e.g. HackMIT 2025" />
+            <DescriptionInput value={formNotes} onChange={setFormNotes} ariaLabel="Notes"
+              placeholder="Notes — project ideas, team, requirements…" />
+
+            <section>
+              <SectionTitle>Event link</SectionTitle>
+              <div className="relative">
+                <LinkIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                <input type="url" placeholder="https://…" value={formLink} aria-label="Event link"
+                  onChange={e => setFormLink(e.target.value)}
+                  className="input-premium w-full h-9 pl-8 pr-3 rounded-lg text-[13px]" />
+              </div>
+            </section>
+
+            <LinksEditor links={formLinks} onChange={setFormLinks} />
+
+            {/* Retro, only once the event has resolved. The funnel counted
+                outcomes but recorded nothing about them. */}
+            {(formStatus === 'offered' || formStatus === 'rejected') && (
+              <section role="group" aria-label="Retrospective">
+                <SectionTitle>Retrospective</SectionTitle>
+                <DescriptionInput value={formRetro} onChange={setFormRetro} minH={72} ariaLabel="Retrospective"
+                  placeholder="What worked, what did not, what to do differently…" />
+              </section>
             )}
-            <button type="button" onClick={addLinkRow}
-              className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
-              <Plus size={13} /> Add link
-            </button>
-          </Group>
+          </EditorLayout>
 
           <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
         </form>
@@ -819,18 +728,6 @@ export default function TimelineView({
 }
 
 /* ── Utility sub-components ── */
-/* Field look-alike for groups of several controls. ui's Field is a <label>,
-   which would forward stray clicks to the first button inside it. */
-function Group({ label, hint, children }) {
-  return (
-    <div role="group" aria-label={label}>
-      <span className="block text-[12px] font-medium text-slate-400 mb-1.5">{label}</span>
-      {children}
-      {hint && <span className="block text-[11.5px] text-slate-500 mt-1">{hint}</span>}
-    </div>
-  );
-}
-
 function PerkChip({ on, onClick, icon: Icon, tone, label, title }) {
   return (
     <button
@@ -838,7 +735,7 @@ function PerkChip({ on, onClick, icon: Icon, tone, label, title }) {
       onClick={onClick}
       aria-pressed={on}
       title={title}
-      className={`h-8 sm:h-7 px-2.5 rounded-md border text-[12.5px] sm:text-[12px] inline-flex items-center gap-1.5 transition-colors cursor-pointer select-none whitespace-nowrap ${
+      className={`h-8 sm:h-7 px-2 rounded-md border text-[12.5px] sm:text-[12px] inline-flex items-center gap-1.5 transition-colors cursor-pointer select-none whitespace-nowrap ${
         on
           ? 'bg-white/[0.09] border-white/[0.16] text-slate-100'
           : 'border-white/[0.06] text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
@@ -847,16 +744,6 @@ function PerkChip({ on, onClick, icon: Icon, tone, label, title }) {
       <Icon size={12} className={`shrink-0 ${on ? tone : 'text-slate-500'}`} />
       {label}
     </button>
-  );
-}
-
-function InfoRow({ icon, label, children }) {
-  return (
-    <div className="flex items-start gap-3 text-[13px] min-w-0">
-      <span className="mt-[3px] shrink-0">{icon}</span>
-      <span className="text-slate-500 shrink-0 w-[68px]">{label}</span>
-      <span className="text-slate-200 flex-1 min-w-0">{children}</span>
-    </div>
   );
 }
 
@@ -1007,7 +894,7 @@ function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpda
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-slate-400 hover:text-slate-100 transition-colors min-w-0 max-w-full"
                 >
-                  <span className="truncate">{lnk.label || 'Link'}</span>
+                  <span className="truncate">{lnk.label || hostOf(lnk.url)}</span>
                   <ExternalLink size={10} className="opacity-60 shrink-0" />
                 </a>
               ))}
@@ -1019,7 +906,8 @@ function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpda
   );
 }
 
-/* ── App Detail Modal with smooth transitions ──────────────── */
+/* ── App Detail Modal with smooth transitions ──────────────────
+   Read-only twin of the editor: content left, properties right. */
 function AppDetailModal({ app, onClose, onEdit, nearestAppId }) {
   // Modal renders in place (no portal), so the wrapper can reach its overlay
   // and surface to play the existing .closing animation before unmounting.
@@ -1035,180 +923,122 @@ function AppDetailModal({ app, onClose, onEdit, nearestAppId }) {
   }, [onClose]);
 
   const status = getStatusStyles(app.status);
+  const statusColor = (STATUS_OPTIONS.find(o => o.value === app.status) || STATUS_OPTIONS[0]).color;
   const name = app.name || 'Hackathon';
-  const title = name.length > 56 ? `${name.slice(0, 55).trimEnd()}…` : name;
+  const isStarred = app.priority === 'high';
+  const deadlineValid = app.deadline && !isNaN(new Date(app.deadline));
+  const days = deadlineValid ? daysUntil(ymdLocal(new Date(app.deadline))) : null;
+  const perks = [
+    app.ppi && { icon: ShieldCheck, tone: 'text-emerald-400', label: 'Offers PPI' },
+    app.travel && { icon: Flame, tone: 'text-amber-400', label: 'Travel covered' },
+    app.onsite && { icon: MapPin, tone: 'text-accent-400', label: 'Onsite' },
+    app.remote && { icon: Globe, tone: 'text-slate-300', label: 'Remote / online' },
+  ].filter(Boolean);
+  const valueCls = 'text-[13px] text-slate-200 min-w-0 break-words';
 
   return (
     <div ref={wrapRef} className="contents">
     <Modal
       open
       onClose={handleClose}
-      title={title}
-      width={500}
+      title="Hackathon"
+      width={780}
       footer={<>
         <button type="button" onClick={handleClose}
           className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Close</button>
         <button type="button" onClick={() => { onEdit(app); onClose(); }}
           className="btn-primary h-8 px-4 text-[13px] rounded-lg cursor-pointer inline-flex items-center gap-1.5">
-          <Edit3 size={13} /> Edit details
+          <Edit3 size={13} /> Edit
         </button>
       </>}
     >
-        <div className="space-y-4">
-          {title !== name && (
-            <p className="text-[13.5px] font-medium text-slate-100 leading-snug break-words">{name}</p>
-          )}
-          <div className="flex flex-wrap gap-1.5">
-            {app.id === nearestAppId && (
-              <span className={BADGE}><span className="beacon-amber" /> Soonest</span>
-            )}
-            {app.priority === 'high' && (
-              <span className={BADGE}>
-                <Star size={10} className="fill-amber-400 text-amber-400" /> Featured
-              </span>
-            )}
-            <span className={BADGE}>
-              <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[app.status] || STATUS_DOT.pending}`} />
-              {status.label}
-            </span>
+      <EditorLayout aside={<>
+        <PropRow icon={Briefcase} label="Organiser">
+          <span className={app.company ? valueCls : 'text-[13px] text-slate-600'}>{app.company || 'None'}</span>
+        </PropRow>
+        <PropRow icon={Calendar} label="Deadline" top>
+          {deadlineValid ? (
+            <div className="pt-1">
+              <p className={valueCls}>{formatDate(app.deadline)}</p>
+              <p className={`text-[11.5px] mt-0.5 ${
+                days < 0 ? 'text-slate-500' : days <= 2 ? 'text-rose-400' : days <= 7 ? 'text-amber-400' : 'text-slate-500'}`}>
+                {days < 0 ? `Ended ${daysLeftText(days)}` : daysLeftText(days)}
+              </p>
+            </div>
+          ) : <span className="text-[13px] text-slate-600">None</span>}
+        </PropRow>
+        <PropRow icon={CheckCircle2} label="Status">
+          <span className={`${valueCls} inline-flex items-center gap-1.5`}>
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: statusColor }} />
+            {status.label}
+          </span>
+        </PropRow>
+        <PropRow icon={Star} label="Priority">
+          <span className={`${valueCls} inline-flex items-center gap-1.5`}>
+            {isStarred
+              ? <><Star size={12} className="fill-amber-400 text-amber-400" /> Starred</>
+              : 'Normal'}
+          </span>
+        </PropRow>
+        <PropRow icon={Gift} label="Perks" top>
+          {perks.length > 0 ? (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {perks.map(p => (
+                <span key={p.label} className={BADGE}><p.icon size={11} className={p.tone} /> {p.label}</span>
+              ))}
+            </div>
+          ) : <span className="text-[13px] text-slate-600 inline-block pt-1">None</span>}
+        </PropRow>
+        {app.id === nearestAppId && (
+          <div className="pt-2">
+            <span className={`${BADGE} !text-amber-400`}><span className="beacon-amber" /> Soonest deadline</span>
           </div>
+        )}
+      </>}>
+        <h3 className="text-[20px] font-semibold leading-snug tracking-[-0.015em] text-slate-50 break-words">{name}</h3>
 
-          <div className="space-y-2.5">
-            {app.company && (
-              <InfoRow icon={<Briefcase size={13} className="text-slate-500" />} label="Company">
-                {app.company}
-              </InfoRow>
-            )}
-            {app.deadline && (
-              <InfoRow icon={<Calendar size={13} className="text-slate-500" />} label="Deadline">
-                {formatDate(app.deadline)}
-              </InfoRow>
-            )}
-            {app.link && (
-              <InfoRow icon={<LinkIcon size={13} className="text-slate-500" />} label="Link">
-                <a href={app.link} target="_blank" rel="noreferrer"
-                  className="text-accent-300 hover:text-accent-200 hover:underline inline-flex items-start gap-1 break-all">
-                  {app.link}
-                  <ExternalLink size={11} className="shrink-0 mt-[3px]" />
+        <div className="text-[14px] leading-relaxed text-slate-300 whitespace-pre-line break-words min-h-[48px]">
+          {app.notes || <span className="text-slate-600">No notes added.</span>}
+        </div>
+
+        {app.link && (
+          <section>
+            <SectionTitle>Event link</SectionTitle>
+            <a href={app.link} target="_blank" rel="noreferrer"
+              className="text-[13px] text-accent-300 hover:text-accent-200 hover:underline inline-flex items-start gap-1 break-all">
+              {app.link}
+              <ExternalLink size={11} className="shrink-0 mt-[3px]" />
+            </a>
+          </section>
+        )}
+
+        {app.links && app.links.length > 0 && (
+          <section>
+            <SectionTitle>Links</SectionTitle>
+            <div className="space-y-1">
+              {app.links.map((link, i) => (
+                <a key={i} href={link.url} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2.5 h-9 px-3 rounded-lg border border-white/[0.06]
+                             hover:bg-white/[0.03] hover:border-white/[0.12] transition-colors group/link">
+                  <Globe size={13} className="text-slate-500 shrink-0" />
+                  <span className="text-[13px] text-slate-300 truncate flex-1 group-hover/link:text-slate-100">
+                    {link.label || link.url}
+                  </span>
+                  <ExternalLink size={11} className="text-slate-600 group-hover/link:text-slate-300 shrink-0" />
                 </a>
-              </InfoRow>
-            )}
-          </div>
-
-          {(app.ppi || app.travel || app.onsite || app.remote) && (
-            <div>
-              <p className="text-[12px] font-medium text-slate-400 mb-2">Highlights</p>
-              <div className="flex flex-wrap gap-1.5">
-                {app.ppi && (
-                  <span className={BADGE}><ShieldCheck size={11} className="text-emerald-400" /> Offers PPI</span>
-                )}
-                {app.travel && (
-                  <span className={BADGE}><Flame size={11} className="text-amber-400" /> Travel covered</span>
-                )}
-                {app.onsite && (
-                  <span className={BADGE}><MapPin size={11} className="text-accent-400" /> Onsite</span>
-                )}
-                {app.remote && (
-                  <span className={BADGE}><Globe size={11} className="text-slate-300" /> Remote / online</span>
-                )}
-              </div>
+              ))}
             </div>
-          )}
+          </section>
+        )}
 
-          {/* Multiple links */}
-          {app.links && app.links.length > 0 && (
-            <div>
-              <p className="text-[12px] font-medium text-slate-400 mb-2">Additional links</p>
-              <div className="space-y-1">
-                {app.links.map((link, i) => (
-                  <a key={i} href={link.url} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-2.5 h-9 px-3 rounded-lg border border-white/[0.06]
-                               hover:bg-white/[0.03] hover:border-white/[0.12] transition-colors group/link">
-                    <Globe size={13} className="text-slate-500 shrink-0" />
-                    <span className="text-[13px] text-slate-300 truncate flex-1 group-hover/link:text-slate-100">
-                      {link.label || link.url}
-                    </span>
-                    <ExternalLink size={11} className="text-slate-600 group-hover/link:text-slate-300 shrink-0" />
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="divider" />
-          <div>
-            <p className="text-[12px] font-medium text-slate-400 mb-2">Notes</p>
-            <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] p-3.5 text-[13px] text-slate-300 whitespace-pre-line leading-relaxed min-h-[64px] break-words">
-              {app.notes || <span className="text-slate-600">No notes added.</span>}
-            </div>
-          </div>
-        </div>
+        {app.retro && (
+          <section>
+            <SectionTitle>Retrospective</SectionTitle>
+            <p className="text-[13.5px] leading-relaxed text-slate-300 whitespace-pre-line break-words">{app.retro}</p>
+          </section>
+        )}
+      </EditorLayout>
     </Modal>
-    </div>
-  );
-}
-
-/* ─── Single link row inside form ─────────────────────── */
-function LinkRow({ link, index, total, onRemove, onChange, onMoveUp, onMoveDown }) {
-  return (
-    <div className="flex items-center gap-1.5 p-1.5 sm:p-0 rounded-lg border border-white/[0.06] sm:border-0 bg-white/[0.015] sm:bg-transparent">
-      {/* Up/Down buttons for ordering (hidden when there is nothing to reorder) */}
-      {total > 1 && (
-        <div className="flex flex-col shrink-0 -my-0.5">
-          <button
-            type="button"
-            disabled={index === 0}
-            onClick={() => onMoveUp(index)}
-            className={`icon-btn !w-6 !h-4 cursor-pointer ${
-              index === 0 ? 'opacity-25 cursor-not-allowed pointer-events-none' : ''
-            }`}
-            title="Move link up"
-            aria-label="Move link up"
-          >
-            <ChevronUp size={12} />
-          </button>
-          <button
-            type="button"
-            disabled={index === total - 1}
-            onClick={() => onMoveDown(index)}
-            className={`icon-btn !w-6 !h-4 cursor-pointer ${
-              index === total - 1 ? 'opacity-25 cursor-not-allowed pointer-events-none' : ''
-            }`}
-            title="Move link down"
-            aria-label="Move link down"
-          >
-            <ChevronDown size={12} />
-          </button>
-        </div>
-      )}
-
-      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-1.5">
-        <input
-          type="text"
-          placeholder="Label, e.g. GitHub"
-          aria-label="Link label"
-          value={link.label}
-          onChange={e => onChange(index, { ...link, label: e.target.value })}
-          className="input-premium h-8 px-2.5 text-[13px] rounded-lg w-full min-w-0"
-        />
-        <input
-          type="url"
-          placeholder="https://…"
-          aria-label="Link URL"
-          value={link.url}
-          onChange={e => onChange(index, { ...link, url: e.target.value })}
-          className="input-premium h-8 px-2.5 text-[13px] rounded-lg w-full min-w-0"
-        />
-      </div>
-      <button
-        type="button"
-        onClick={() => onRemove(index)}
-        className="icon-btn !w-8 !h-8 cursor-pointer shrink-0 hover:!text-rose-400"
-        title="Remove link"
-        aria-label="Remove link"
-      >
-        <X size={14} />
-      </button>
     </div>
   );
 }
