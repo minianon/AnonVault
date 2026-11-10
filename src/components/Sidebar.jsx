@@ -3,6 +3,7 @@ import { NAV } from '../nav';
 import { Search, PanelLeftClose, PanelLeftOpen, Square, X } from 'lucide-react';
 import Logo from './Logo';
 import { sessions, isRunning, durationMs, formatDuration, useNow, stopSession } from '../services/focus';
+import { board, dueInfo } from '../services/board';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -53,6 +54,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const boardOverdue = board.useAll().filter(i => dueInfo(i)?.tone === 'bad').length;
   const all = sessions.useAll();
   const running = all.filter(isRunning);
   const now = useNow(1000, running.length > 0);
@@ -115,6 +117,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
           {NAV.map(({ id, label, icon: Icon, countKey }, i) => {
             const active = activeTab === id;
             const count = countKey ? stats[countKey] : 0;
+            const alert = id === 'board' && boardOverdue > 0;
             const live = id === 'focus' && running.length > 0;
             return (
               <button key={id} onClick={() => go(id)}
@@ -132,8 +135,15 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
                     <span className="live-dot" />
                   ) : (
                     <>
-                      {count > 0 && <span className="text-[11.5px] tabular-nums text-slate-500 group-hover:hidden">{count}</span>}
-                      <span className="text-[11px] text-slate-600 hidden group-hover:inline font-mono">{i + 1}</span>
+                      {count > 0 && (
+                        <span title={alert ? `${boardOverdue} overdue` : undefined}
+                          className={`group-hover:hidden min-w-[20px] h-[18px] px-1.5 rounded-full text-[11px] font-medium tabular-nums leading-[18px] text-center ${
+                            alert ? 'bg-rose-400/15 text-rose-300'
+                              : active ? 'bg-white/[0.12] text-slate-100' : 'bg-white/[0.06] text-slate-400'}`}>
+                          {count > 99 ? '99+' : count}
+                        </span>
+                      )}
+                      <span className="kbd hidden group-hover:inline-flex">{i === 9 ? 0 : i + 1}</span>
                     </>
                   )}
                 </Fade>

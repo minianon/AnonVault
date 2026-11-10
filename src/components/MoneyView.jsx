@@ -6,7 +6,7 @@ import {
 import {
   transactions, EXPENSE_CATEGORIES, INCOME_CATEGORIES, METHODS, categoryMeta,
   useMoneySettings, setMoneySettings, formatMoney, ymd, monthKey, shiftMonth, monthLabel,
-  daysInMonth, summarizeMonth, spentOn, incomeSources,
+  daysInMonth, summarizeMonth, spentOn,
 } from '../services/money';
 import { IncomeSourcesTab, InvestmentsTab, LendingTab, EmiTab } from './MoneyExtras';
 import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Select, inputCls } from './ui';
@@ -37,20 +37,16 @@ function EntryForm({ initial, onSubmit, submitLabel = 'Add', compact = false, au
   const [note, setNote] = useState(initial?.note || '');
   const [date, setDate] = useState(initial?.date || ymd());
   const [method, setMethod] = useState(initial?.method || 'upi');
-  const [sourceId, setSourceId] = useState(initial?.source_id || '');
+  // Monthly income is ticked off in Income sources. Here, "income" means
+  // extra money that isn't one of those (a gift, a prize, a one-off gig).
+  // Editing a source-linked entry keeps its link.
+  const sourceId = initial?.source_id || null;
   const [shake, setShake] = useState(false);
   const settings = useMoneySettings();
-  const sources = incomeSources.useAll().filter(s => s.active !== false);
 
-  // Picking a source fills in its category so the two never disagree.
-  const pickSource = id => {
-    setSourceId(id);
-    const src = sources.find(s => s.id === id);
-    if (src?.category) setCategory(src.category);
-    if (src && !amount) setAmount(String(src.kind === 'range' ? src.min ?? '' : src.amount ?? ''));
-  };
-
-  const cats = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const cats = type === 'income'
+    ? (sourceId ? INCOME_CATEGORIES : INCOME_CATEGORIES.filter(c => c.id !== 'salary'))
+    : EXPENSE_CATEGORIES;
   // Switching Expense/Income keeps the pick only if it exists on the other side.
   const category = cats.some(c => c.id === pickedCategory) ? pickedCategory : cats[0].id;
 
@@ -62,9 +58,9 @@ function EntryForm({ initial, onSubmit, submitLabel = 'Add', compact = false, au
       return;
     }
     const row = { type, amount: Math.round(value * 100) / 100, category, note: note.trim(), date, method };
-    if (type === 'income') row.source_id = sourceId || null;
+    if (type === 'income') row.source_id = sourceId;
     onSubmit(row);
-    if (!initial) { setAmount(''); setNote(''); setSourceId(''); }
+    if (!initial) { setAmount(''); setNote(''); }
   };
 
   const symbol = useMemo(() => {
@@ -78,14 +74,14 @@ function EntryForm({ initial, onSubmit, submitLabel = 'Add', compact = false, au
     <form onSubmit={submit} className="space-y-3">
       <div className="flex flex-col sm:flex-row gap-2">
         <Segmented value={type} onChange={setType}
-          options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
+          options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: sourceId ? 'Income' : 'Extra income' }]} />
         <div className={`relative flex-1 ${shake ? 'animate-shake' : ''}`}>
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-slate-500 pointer-events-none">{symbol}</span>
           <input ref={autoFocusRef} value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
             inputMode="decimal" placeholder="0" aria-label="Amount"
             className="input-premium w-full h-8 pl-8 pr-3 rounded-lg text-[14px] font-medium tabular-nums" />
         </div>
-        <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (e.g. lunch with team)"
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder={type === 'income' ? 'Where from? (e.g. birthday gift, one-off gig)' : 'Note (e.g. lunch with team)'}
           className={`${inputCls} !h-8 sm:flex-[1.4]`} aria-label="Note" />
       </div>
 
@@ -107,10 +103,6 @@ function EntryForm({ initial, onSubmit, submitLabel = 'Add', compact = false, au
       <div className={`flex flex-wrap items-center gap-2 ${compact ? '' : 'pt-1'}`}>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} max="2100-12-31"
           className={`${inputCls} !h-8 !w-auto`} aria-label="Date" />
-        {type === 'income' && sources.length > 0 && (
-          <Select size="sm" className="min-w-[150px]" value={sourceId} onChange={pickSource} ariaLabel="Income source"
-            options={[{ value: '', label: 'No source' }, ...sources.map(s => ({ value: s.id, label: s.name }))]} />
-        )}
         <Select size="sm" className="w-24" value={method} onChange={setMethod} ariaLabel="Paid with"
           options={METHODS.map(m => ({ value: m.id, label: m.label }))} />
         <button type="submit" className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer ml-auto">
@@ -143,7 +135,7 @@ export default function MoneyView({ onLock, onMenuToggle, showToast }) {
   }, []);
 
   useEffect(() => {
-    const onNew = () => amountRef.current?.focus();
+    const onNew = () => { if (amountRef.current?.closest('[aria-hidden="false"]')) amountRef.current.focus(); };
     window.addEventListener('anonvault:new', onNew);
     return () => window.removeEventListener('anonvault:new', onNew);
   }, []);
@@ -207,7 +199,13 @@ export default function MoneyView({ onLock, onMenuToggle, showToast }) {
 
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title="Money" subtitle="Spending, income, EMIs, investments and lending" onMenuToggle={onMenuToggle} onLock={onLock}
+      <PageHeader title="Money"
+        stats={[
+          { value: fmt(sum.expense), label: `spent in ${monthLabel(month, { month: 'short' })}`, always: true },
+          { value: budget ? fmt(Math.abs(remaining)) : null, label: remaining >= 0 ? 'left' : 'over', tone: remaining >= 0 ? undefined : 'bad' },
+          { value: sum.income ? fmt(sum.income) : null, label: 'in', tone: 'good' },
+        ]}
+        onMenuToggle={onMenuToggle} onLock={onLock}
         actions={<>
           <div className="flex items-center rounded-lg border border-white/[0.08] h-8">
             <button onClick={() => setMonth(m => shiftMonth(m, -1))} className="icon-btn !h-full !rounded-r-none" aria-label="Previous month"><ChevronLeft size={14} /></button>
@@ -251,7 +249,11 @@ export default function MoneyView({ onLock, onMenuToggle, showToast }) {
             <Stat label={`Spent in ${monthLabel(month, { month: 'long' })}`} value={fmt(sum.expense)}
               hint={delta == null ? `${sum.rows.filter(r => r.type !== 'income').length} expenses`
                 : `${delta > 0 ? '▲' : '▼'} ${Math.abs(Math.round(delta * 100))}% vs last month`} />
-            <Stat label="Income" value={fmt(sum.income)} hint={`${sum.rows.filter(r => r.type === 'income').length} entries`} />
+            <Stat label="Income" value={fmt(sum.income)}
+              hint={(() => {
+                const fromSources = sum.rows.filter(r => r.type === 'income' && r.source_id).reduce((a, r) => a + Number(r.amount), 0);
+                return `${fmt(fromSources, { compact: true })} sources · ${fmt(sum.income - fromSources, { compact: true })} extra`;
+              })()} />
             <Stat label="Net" value={fmt(sum.net, { sign: sum.net !== 0 })} tone={sum.net > 0 ? 'good' : sum.net < 0 ? 'bad' : undefined}
               hint={sum.income ? `Saved ${Math.max(0, Math.round((sum.net / sum.income) * 100))}% of income` : 'Income minus spending'} />
             <Stat label={isCurrent ? 'Spent today' : 'Daily average'}

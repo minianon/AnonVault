@@ -201,7 +201,25 @@ export function Combo({ value, onChange, suggestions = [], placeholder, classNam
   );
 }
 
-export function PageHeader({ title, subtitle, onMenuToggle, onLock, actions, children, headerChildren }) {
+/* Small "3 open" style chips shown beside a page title. */
+export function HeaderStats({ stats }) {
+  const list = (stats || []).filter(s => s && s.value != null && (s.always || Number(s.value) !== 0));
+  if (!list.length) return null;
+  return (
+    <span className="hidden sm:inline-flex items-center gap-1.5 min-w-0">
+      {list.map(s => (
+        <span key={s.label}
+          className={`inline-flex items-baseline gap-1 h-6 px-2 rounded-md border text-[12px] whitespace-nowrap leading-6 ${
+            s.tone === 'bad' ? 'border-rose-400/25 bg-rose-400/[0.07]' : s.tone === 'warn' ? 'border-amber-400/25 bg-amber-400/[0.07]' : s.tone === 'good' ? 'border-emerald-400/25 bg-emerald-400/[0.07]' : 'border-white/[0.07] bg-white/[0.03]'}`}>
+          <span className={`font-semibold tabular-nums ${s.tone === 'bad' ? 'text-rose-300' : s.tone === 'warn' ? 'text-amber-300' : s.tone === 'good' ? 'text-emerald-300' : 'text-slate-100'}`}>{s.value}</span>
+          <span className="text-slate-500">{s.label}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+export function PageHeader({ title, subtitle, stats, onMenuToggle, onLock, actions, children, headerChildren }) {
   return (
     <header className="glass-header h-14 px-3 sm:px-4 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 shrink-0 relative z-10">
       <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
@@ -212,7 +230,8 @@ export function PageHeader({ title, subtitle, onMenuToggle, onLock, actions, chi
         )}
         <div className="min-w-0 flex items-baseline gap-2.5">
           <h1 className="text-[15px] font-semibold text-slate-100 tracking-[-0.01em] whitespace-nowrap shrink-0">{title}</h1>
-          {subtitle && <span className="hidden sm:inline text-[13px] text-slate-500 truncate">{subtitle}</span>}
+          {stats ? <HeaderStats stats={stats} />
+            : subtitle && <span className="hidden sm:inline text-[13px] text-slate-500 truncate">{subtitle}</span>}
         </div>
         {children}
         {headerChildren}
@@ -316,16 +335,21 @@ export function Segmented({ value, onChange, options, size = 'md' }) {
 /** Minimal modal. Uses .modal-overlay so global shortcuts stand down. */
 export function Modal({ open, onClose, title, children, footer, width = 440 }) {
   const ref = useRef(null);
+  // Parents often pass an inline onClose that changes every render (Focus
+  // re-renders every second). Keep it in a ref so focus is set only when the
+  // dialog opens, never again mid-typing.
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; });
   useEffect(() => {
     if (!open) return;
-    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    const onKey = e => { if (e.key === 'Escape') closeRef.current?.(); };
     window.addEventListener('keydown', onKey);
     // Don't pop the keyboard open on phones; focus the first field only with a real pointer.
     const fine = window.matchMedia?.('(pointer: fine)').matches;
     const first = (fine && ref.current?.querySelector('.p-5 input, .p-5 textarea')) || ref.current;
     first?.focus();
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="modal-overlay fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4"

@@ -175,6 +175,11 @@ export const FREQUENCIES = [
   { id: 'one-time', label: 'One-time', perMonth: 0 },
 ];
 
+/** Income transactions from one source inside a month ('YYYY-MM'). */
+export function receivedFrom(list, sourceId, month) {
+  return list.filter(t => t.type === 'income' && t.source_id === sourceId && (t.date || '').startsWith(month));
+}
+
 /** Expected per month as [low, high]. */
 export function expectedPerMonth(src) {
   const f = FREQUENCIES.find(x => x.id === src.frequency)?.perMonth ?? 1;
@@ -195,6 +200,7 @@ export const investments = createCollection({
 
 export const INVESTMENT_KINDS = [
   { id: 'mutual-fund', label: 'Mutual fund / SIP', color: '#6c96ff' },
+  { id: 'trading',     label: 'Trading',           color: '#fb923c' },
   { id: 'stocks',      label: 'Stocks',            color: '#4fd1a0' },
   { id: 'fd',          label: 'FD / RD',           color: '#f0b445' },
   { id: 'gold',        label: 'Gold',              color: '#f7cf7b' },
@@ -263,9 +269,38 @@ export function emiStats(e, today = new Date()) {
   const amount = Number(e.emi_amount) || 0;
   const thisMonth = monthKey(today);
   const paidThisMonth = payments.includes(thisMonth);
-  let nextMonth = paidThisMonth ? shiftMonth(thisMonth, 1) : thisMonth;
+  let nextMonth = thisMonth;
   if (e.start_month && nextMonth < e.start_month) nextMonth = e.start_month;
+  while (payments.includes(nextMonth)) nextMonth = shiftMonth(nextMonth, 1);
+  // Latest paid month from this month on — what an undo click takes back.
+  const lastPaid = [...payments].filter(m => m >= thisMonth).sort().pop() || null;
   const done = !!e.closed || (!endless && remaining === 0);
   const endMonth = !endless && remaining > 0 ? shiftMonth(nextMonth, remaining - 1) : null;
-  return { endless, total, paid, remaining, amount, left: endless ? 0 : remaining * amount, paidThisMonth, nextMonth, done, endMonth };
+  return { endless, total, paid, remaining, amount, left: endless ? 0 : remaining * amount, paidThisMonth, nextMonth, lastPaid, done, endMonth };
+}
+
+/* ── one-click actions shared by Today and Money ─────────── */
+
+/** Pay the next unpaid EMI month. Returns an undo function. */
+export function payEmi(e) {
+  const st = emiStats(e);
+  const m = st.nextMonth;
+  const before = { payments: e.payments || [], closed: e.closed };
+  const tx = transactions.add({
+    type: 'expense', amount: st.amount, category: 'emi', note: `EMI · ${e.name}`, method: 'bank',
+    date: m === monthKey() ? ymd() : `${m}-01`, emi_id: e.id,
+  });
+  const payments = [...before.payments, m];
+  const finished = !st.endless && (Number(e.paid_before) || 0) + payments.length >= (Number(e.total_months) || 0);
+  emis.update(e.id, { payments, closed: finished || !!e.closed });
+  return { month: m, amount: st.amount, undo: () => { transactions.remove(tx.id); emis.update(e.id, before); } };
+}
+
+/** Log a source's income for a month. Returns an undo function. */
+export function receiveIncome(src, month, amount) {
+  const tx = transactions.add({
+    type: 'income', amount: Number(amount) || 0, category: src.category || 'salary', note: src.name, method: 'bank',
+    date: month === monthKey() ? ymd() : `${month}-01`, source_id: src.id,
+  });
+  return { undo: () => transactions.remove(tx.id) };
 }

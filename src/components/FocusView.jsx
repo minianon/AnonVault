@@ -36,7 +36,7 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
   const inputRef = useRef(null);
 
   useEffect(() => {
-    const onNew = () => inputRef.current?.focus();
+    const onNew = () => { if (inputRef.current?.closest('[aria-hidden="false"]')) inputRef.current.focus(); };
     window.addEventListener('anonvault:new', onNew);
     return () => window.removeEventListener('anonvault:new', onNew);
   }, []);
@@ -92,7 +92,12 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
 
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title="Focus" subtitle="What you're working on, and where the hours went"
+      <PageHeader title="Focus"
+        stats={[
+          { value: running.length, label: running.length > 1 ? 'running' : 'running', tone: 'good' },
+          { value: formatDuration(todayMs), label: 'today', always: true },
+          { value: formatDuration(weekMs), label: 'this week', always: true },
+        ]}
         onMenuToggle={onMenuToggle} onLock={onLock}
         actions={running.length > 1 && (
           <button onClick={stopAll} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">

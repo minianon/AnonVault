@@ -622,6 +622,83 @@ input:checked + label .checkbox-draw-path { stroke-dashoffset: 0; }
 
 }
 
+/* ─── Lock screen v2 ────────────────────────────────────────── */
+.lock-screen { background: #08080a; }
+.lock-aurora { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lock-aurora span {
+  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
+  filter: blur(90px); opacity: 0.55; will-change: transform;
+}
+.lock-aurora span:first-child {
+  background: radial-gradient(circle, rgba(79,123,255,0.22) 0%, transparent 65%);
+  top: -25vmax; left: -15vmax; animation: lockDriftA 26s ease-in-out infinite alternate;
+}
+.lock-aurora span:last-child {
+  background: radial-gradient(circle, rgba(148,163,255,0.12) 0%, transparent 65%);
+  bottom: -30vmax; right: -20vmax; animation: lockDriftB 32s ease-in-out infinite alternate;
+}
+@keyframes lockDriftA { from { transform: translate(0, 0) scale(1); } to { transform: translate(8vmax, 6vmax) scale(1.08); } }
+@keyframes lockDriftB { from { transform: translate(0, 0) scale(1.05); } to { transform: translate(-6vmax, -8vmax) scale(0.95); } }
+.lock-noise {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0.06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@media (min-width: 640px) {
+  .lock-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 40px 80px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.06);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+  }
+}
+.pin-cell {
+  width: 48px; height: 56px; border-radius: 15px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.09);
+  transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
+}
+.pin-cell.current { border-color: rgba(255,255,255,0.32); box-shadow: 0 0 0 4px rgba(255,255,255,0.04); }
+.pin-cell-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--text-1); transform: scale(0); opacity: 0; transition: transform .22s var(--ease), opacity .15s ease, background-color .2s ease; }
+.pin-cell.filled .pin-cell-dot { transform: scale(1); opacity: 1; }
+.pin-cell.ok { border-color: rgba(79,209,160,0.5); background: rgba(79,209,160,0.08); }
+.pin-cell.ok .pin-cell-dot { background: var(--ok); }
+.pin-cell.error { border-color: rgba(245,118,138,0.55); background: rgba(245,118,138,0.07); }
+.pin-cell.error .pin-cell-dot { background: var(--bad); }
+
+.key-round {
+  width: 68px; height: 68px; border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--text-1);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  transition: background-color .12s ease, transform .12s var(--ease), border-color .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.key-round:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.1); }
+.key-round:active, .key-round[data-active='true'] { transform: scale(0.92); background: rgba(255,255,255,0.18); }
+.key-round--ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.key-round--ghost:hover { background: rgba(255,255,255,0.05); color: var(--text-1); }
+
+@media (max-width: 639px) {
+  .key-round { width: 70px; height: 70px; }
+}
+@media (max-height: 760px) and (max-width: 1023px) {
+  .lock-clock { display: none; }
+}
+@media (max-height: 820px) and (min-width: 640px) {
+  .lock-hint { display: none !important; }
+}
+@media (max-height: 640px) {
+  .key-round { width: 60px; height: 60px; }
+  .pin-cell { width: 44px; height: 52px; }
+  .lock-avatar { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lock-aurora span { animation: none; }
+}
+
 /* ─── Small screens & touch ──────────────────────────────────── */
 /* iOS zooms the page when a focused field is under 16px. */
 @media (max-width: 640px) {

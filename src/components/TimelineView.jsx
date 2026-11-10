@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Plus, Search, ArrowUpDown, ExternalLink,
+  Plus, Minus, Search, ArrowUpDown, ExternalLink,
   Edit3, Trash2, Calendar, Link as LinkIcon,
   ChevronDown, ChevronUp, ChevronRight, ListCollapse,
   X, Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, History,
@@ -9,7 +9,7 @@ import {
 import { formatDate, getStatusStyles, sortApplicationsByDeadline, groupApplicationsByMonth } from '../utils/helpers';
 import { getHackathonProgress } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
-import { PageHeader, Empty, Progress, inputCls, Select } from './ui';
+import { PageHeader, Empty, Progress, inputCls, Select, Combo, Modal, Field } from './ui';
 
 /* Quiet status dot per hackathon status (labels come from getStatusStyles). */
 const STATUS_DOT = {
@@ -19,6 +19,21 @@ const STATUS_DOT = {
   offered: 'bg-emerald-400',
   rejected: 'bg-slate-600',
 };
+
+/* Same statuses for the form's Select, with matching dot colours. */
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending', color: '#6c6c75' },
+  { value: 'applied', label: 'Registered', color: '#4f7bff' },
+  { value: 'interviewing', label: 'Building', color: '#f0b445' },
+  { value: 'offered', label: 'Winner', color: '#4fd1a0' },
+  { value: 'rejected', label: 'Completed', color: '#4a4a52' },
+];
+
+/* priority is stored as 'high' (starred) or 'medium'. */
+const PRIORITY_OPTIONS = [
+  { value: 'medium', label: 'Normal', color: '#6c6c75' },
+  { value: 'high', label: 'Starred', color: '#f0b445' },
+];
 
 /* Small neutral badge used for status / perks. */
 const BADGE = 'inline-flex items-center gap-1 text-[11.5px] px-1.5 h-5 rounded-md bg-white/[0.04] border border-white/[0.06] text-slate-400 whitespace-nowrap';
@@ -99,6 +114,8 @@ export default function TimelineView({
   setActiveTab,
   onCreateChecklist
 }) {
+  // Taken once per mount: a header count doesn't need to tick past midnight live.
+  const [mountedAt] = useState(() => Date.now());
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
   const [groupByMonthMode, setGroupByMonthMode] = useState(true);
@@ -251,6 +268,38 @@ export default function TimelineView({
   const handleConfirmDelete = async () => {
     if (deleteConfirmId) { await onDelete(deleteConfirmId); setDeleteConfirmId(null); }
   };
+  // Delete from inside the edit dialog: close it and hand over to the confirm.
+  const handleDeleteFromForm = () => {
+    if (!editingApp) return;
+    const id = editingApp.id;
+    setIsFormOpen(false);
+    setDeleteConfirmId(id);
+  };
+
+  // Stable close handlers: Modal re-runs its focus effect whenever onClose
+  // changes, so inline arrows would steal focus on every keystroke.
+  const closeForm = useCallback(() => setIsFormOpen(false), []);
+  const closeDelete = useCallback(() => setDeleteConfirmId(null), []);
+  const closeDetails = useCallback(() => setSelectedAppDetails(null), []);
+
+  const deleteTarget = deleteConfirmId
+    ? (applications || []).find(a => a && a.id === deleteConfirmId)
+    : null;
+
+  const companySuggestions = useMemo(
+    () => [...new Set((applications || []).map(a => (a?.company || '').trim()).filter(Boolean))],
+    [applications]
+  );
+
+  const deadlinePreview = (() => {
+    const days = parseInt(formDaysLeft, 10);
+    if (isNaN(days) || days < 0) return undefined;
+    if (days === 0) return 'Due today';
+    if (days === 1) return 'Due tomorrow';
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return `Due ${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) })}`;
+  })();
 
   const toggleMonth = (month) =>
     setExpandedMonths(prev => ({ ...prev, [month]: prev[month] === false ? true : false }));
@@ -313,12 +362,24 @@ export default function TimelineView({
   const ctaCls = 'btn-primary h-8 px-3 rounded-lg text-[13px] inline-flex items-center gap-1.5 cursor-pointer';
   const toolBtn = 'h-8 px-2.5 rounded-lg text-[12.5px] inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap';
   const toggleOn = 'bg-white/[0.06] border border-white/[0.14] text-slate-100 transition-colors';
+  const btnGhost = 'btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer';
+  const stepBtn = 'btn-ghost w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer select-none';
 
   return (
     <div ref={rootRef} className="flex-1 h-full flex flex-col overflow-hidden relative bg-[var(--bg)]">
       <PageHeader
         title="Hackathons"
-        subtitle={`${(applications || []).length} events tracked`}
+        stats={(() => {
+          const now = mountedAt;
+          const list = (applications || []).filter(Boolean);
+          const upcoming = list.filter(x => x.deadline && new Date(x.deadline).getTime() >= now);
+          const week = upcoming.filter(x => new Date(x.deadline).getTime() - now <= 7 * 86400000);
+          return [
+            { value: upcoming.length, label: 'upcoming', always: true },
+            { value: week.length, label: 'this week', tone: 'warn' },
+            { value: list.filter(x => x.status === 'offered').length, label: 'won', tone: 'good' },
+          ];
+        })()}
         onMenuToggle={onMenuToggle}
         onLock={onLock}
         actions={
@@ -536,223 +597,219 @@ export default function TimelineView({
       </div>
 
       {/* ── ADD / EDIT MODAL ── */}
-      {isFormOpen && (
-        <div className="modal-overlay fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 pt-[6vh] sm:pt-4" onClick={() => setIsFormOpen(false)}>
-          <div role="dialog" aria-modal="true" aria-label={editingApp ? 'Edit hackathon' : 'New hackathon'}
-            className="modal-surface w-full max-w-lg max-h-[88vh] rounded-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-5 h-12 border-b border-white/[0.06] flex items-center justify-between gap-3 shrink-0">
-              <h2 className="text-[14px] font-semibold text-slate-100 truncate">{editingApp ? 'Edit hackathon' : 'New hackathon'}</h2>
-              <div className="flex items-center gap-1 -mr-2">
+      <Modal
+        open={isFormOpen}
+        onClose={closeForm}
+        title={editingApp ? 'Edit hackathon' : 'New hackathon'}
+        width={540}
+        footer={<>
+          {editingApp && (
+            <button type="button" onClick={handleDeleteFromForm}
+              className="btn-danger h-8 px-3 rounded-lg text-[13px] cursor-pointer mr-auto inline-flex items-center gap-1.5">
+              <Trash2 size={13} /> Delete
+            </button>
+          )}
+          <button type="button" onClick={closeForm} className={btnGhost}>Cancel</button>
+          <button type="submit" form="hackathon-form" className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">
+            {editingApp ? 'Save changes' : 'Add hackathon'}
+          </button>
+        </>}
+      >
+        <form id="hackathon-form" onSubmit={handleSubmit} className="space-y-4">
+          <Field label="Event name">
+            <input type="text" required placeholder="e.g. HackMIT 2025" value={formName}
+              onChange={e => setFormName(e.target.value)}
+              className="input-premium w-full h-10 px-3 rounded-lg text-[14.5px] font-medium" />
+          </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-4">
+            <Field label="Organiser">
+              <Combo value={formCompany} onChange={setFormCompany} placeholder="e.g. Google, MLH"
+                suggestions={companySuggestions} inputClassName="h-9" ariaLabel="Organiser" icon={Briefcase} />
+            </Field>
+
+            <Group label="Deadline" hint={deadlinePreview}>
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setFormStarred(s => !s)}
-                  className={`icon-btn cursor-pointer ${formStarred ? '!text-amber-400' : ''}`}
-                  title={formStarred ? 'Featured (Starred)' : 'Mark as Featured'}
-                  aria-pressed={formStarred}
+                  onClick={() => setFormDaysLeft(prev => String(Math.max(0, parseInt(prev, 10) - 1)))}
+                  className={stepBtn}
+                  aria-label="One day fewer"
                 >
-                  <Star size={15} className={formStarred ? 'fill-amber-400' : ''} />
+                  <Minus size={14} />
                 </button>
-                <button type="button" onClick={() => setIsFormOpen(false)} className="icon-btn cursor-pointer" aria-label="Close"><X size={15} /></button>
-              </div>
-            </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                <Field label="Event name" required>
-                  <input type="text" required placeholder="e.g. HackMIT 2025" value={formName}
-                    onChange={e => setFormName(e.target.value)}
-                    className={inputCls} />
-                </Field>
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    required
+                    aria-label="Days until deadline"
+                    value={formDaysLeft}
+                    onChange={e => {
+                      const val = e.target.value.replace(/[^0-9]/g, '');
+                      setFormDaysLeft(val || '0');
+                    }}
+                    className="input-premium w-full h-9 pl-2 pr-9 text-center text-[13px] font-medium tabular-nums rounded-lg"
+                  />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-slate-500 pointer-events-none select-none">
+                    {parseInt(formDaysLeft, 10) === 1 ? 'day' : 'days'}
+                  </span>
+                </div>
 
-                <Field label="Company / host organization">
-                  <input type="text" placeholder="e.g. Google, Major League Hacking" value={formCompany}
-                    onChange={e => setFormCompany(e.target.value)}
-                    className={inputCls} />
-                </Field>
-
-                <Field label="Event link">
-                  <div className="relative">
-                    <LinkIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
-                    <input type="url" placeholder="https://…" value={formLink}
-                      onChange={e => setFormLink(e.target.value)}
-                      className={`${inputCls} !pl-8`} />
-                  </div>
-                </Field>
-
-                <Field label="Days until deadline" required>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setFormDaysLeft(prev => String(Math.max(0, parseInt(prev, 10) - 1)))}
-                      className="btn-ghost w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer text-[15px] select-none"
-                      aria-label="One day fewer"
-                    >
-                      −
-                    </button>
-
-                    <div className="relative flex-1 min-w-0">
-                      <input
-                        type="text"
-                        pattern="[0-9]*"
-                        required
-                        value={formDaysLeft}
-                        onChange={e => {
-                          const val = e.target.value.replace(/[^0-9]/g, '');
-                          setFormDaysLeft(val || '0');
-                        }}
-                        className="input-premium w-full h-9 text-center text-[13px] font-medium tabular-nums rounded-lg select-all"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500 pointer-events-none select-none">
-                        {parseInt(formDaysLeft, 10) === 1 ? 'day' : 'days'}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setFormDaysLeft(prev => String(parseInt(prev, 10) + 1))}
-                      className="btn-ghost w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer text-[15px] select-none"
-                      aria-label="One day more"
-                    >
-                      +
-                    </button>
-
-                    {/* Hidden date picker triggered by Calendar Icon */}
-                    <div
-                      onClick={(e) => {
-                        const input = e.currentTarget.querySelector('input[type="date"]');
-                        if (input) {
-                          if (typeof input.showPicker === 'function') {
-                            input.showPicker();
-                          } else {
-                            input.click();
-                          }
-                        }
-                      }}
-                      className="btn-ghost relative w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer"
-                      title="Pick a date"
-                    >
-                      <Calendar size={14} />
-                      <input
-                        type="date"
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => {
-                          if (e.target.value) {
-                            const selected = new Date(e.target.value + 'T00:00:00');
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            const diffTime = selected - today;
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            setFormDaysLeft(String(Math.max(0, diffDays)));
-                          }
-                        }}
-                        className="absolute inset-0 opacity-0 pointer-events-none w-0 h-0"
-                      />
-                    </div>
-                  </div>
-                </Field>
-
-                <Field label="Status">
-                  <Select className="w-full" value={formStatus} onChange={setFormStatus} ariaLabel="Status"
-                    options={[
-                      { value: 'pending', label: 'Pending' },
-                      { value: 'applied', label: 'Registered' },
-                      { value: 'interviewing', label: 'Building' },
-                      { value: 'offered', label: 'Winner' },
-                      { value: 'rejected', label: 'Completed' },
-                    ]} />
-                </Field>
-
-                <Field label="Event details">
-                  <div className="grid grid-cols-2 gap-2">
-                    <PerkToggle on={formPpi} onClick={() => setFormPpi(p => !p)}
-                      icon={ShieldCheck} tone="text-emerald-400" title="Offers PPI" sub="Placement interview" />
-                    <PerkToggle on={formTravel} onClick={() => setFormTravel(t => !t)}
-                      icon={Flame} tone="text-amber-400" title="Travel covered" sub="Reimbursements" />
-                    <PerkToggle on={formOnsite} onClick={() => setFormOnsite(o => !o)}
-                      icon={MapPin} tone="text-accent-400" title="Onsite event" sub="In-person" />
-                    <PerkToggle on={formRemote} onClick={() => setFormRemote(r => !r)}
-                      icon={Globe} tone="text-slate-200" title="Remote / online" sub="Join from anywhere" />
-                  </div>
-                </Field>
-
-                <Field label="Notes">
-                  <textarea rows={4} placeholder="Project ideas, team, requirements…" value={formNotes}
-                    onChange={e => setFormNotes(e.target.value)}
-                    className="input-premium w-full px-3 py-2 text-[13px] rounded-lg resize-none leading-relaxed" />
-                </Field>
-
-                {/* Retro, only once the event has resolved. The funnel counted
-                    outcomes but recorded nothing about them. */}
-                {(formStatus === 'offered' || formStatus === 'rejected') && (
-                  <Field label="Retrospective">
-                    <textarea rows={3} placeholder="What worked, what did not, what to do differently…" value={formRetro}
-                      onChange={e => setFormRetro(e.target.value)}
-                      className="input-premium w-full px-3 py-2 text-[13px] rounded-lg resize-none leading-relaxed" />
-                  </Field>
-                )}
-
-                {/* Links Section */}
-                <Field label="Additional links">
-                  <div className="space-y-2">
-                    {formLinks.map((link, i) => (
-                      <LinkRow
-                        key={i}
-                        link={link}
-                        index={i}
-                        total={formLinks.length}
-                        onRemove={removeLinkRow}
-                        onChange={changeLinkRow}
-                        onMoveUp={idx => moveLink(idx, -1)}
-                        onMoveDown={idx => moveLink(idx, 1)}
-                      />
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addLinkRow}
-                      className="w-full h-8 flex items-center justify-center gap-1.5 text-[12.5px] text-slate-400 hover:text-slate-200
-                                 border border-dashed border-white/[0.1] rounded-lg hover:border-white/[0.2] hover:bg-white/[0.02] transition-colors cursor-pointer"
-                    >
-                      <Plus size={13} /> Add link
-                    </button>
-                  </div>
-                </Field>
-              </div>
-
-              <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2 bg-white/[0.015] shrink-0">
-                <button type="button" onClick={() => setIsFormOpen(false)} className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Cancel</button>
-                <button type="submit" className="btn-primary h-8 px-3 text-[13px] rounded-lg cursor-pointer">
-                  {editingApp ? 'Save changes' : 'Add hackathon'}
+                <button
+                  type="button"
+                  onClick={() => setFormDaysLeft(prev => String(parseInt(prev, 10) + 1))}
+                  className={stepBtn}
+                  aria-label="One day more"
+                >
+                  <Plus size={14} />
                 </button>
+
+                {/* Hidden date picker triggered by the calendar button */}
+                <div
+                  onClick={(e) => {
+                    const input = e.currentTarget.querySelector('input[type="date"]');
+                    if (input) {
+                      if (typeof input.showPicker === 'function') {
+                        input.showPicker();
+                      } else {
+                        input.click();
+                      }
+                    }
+                  }}
+                  className={`${stepBtn} relative`}
+                  title="Pick a date"
+                  role="button"
+                  aria-label="Pick a date"
+                >
+                  <Calendar size={14} />
+                  <input
+                    type="date"
+                    tabIndex={-1}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => {
+                      if (e.target.value) {
+                        const selected = new Date(e.target.value + 'T00:00:00');
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const diffTime = selected - today;
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        setFormDaysLeft(String(Math.max(0, diffDays)));
+                      }
+                    }}
+                    className="absolute inset-0 opacity-0 pointer-events-none w-0 h-0"
+                  />
+                </div>
               </div>
-            </form>
+            </Group>
+
+            <Field label="Status">
+              <Select className="w-full" value={formStatus} onChange={setFormStatus} ariaLabel="Status"
+                options={STATUS_OPTIONS} />
+            </Field>
+
+            <Field label="Priority">
+              <Select className="w-full" value={formStarred ? 'high' : 'medium'}
+                onChange={v => setFormStarred(v === 'high')} ariaLabel="Priority"
+                options={PRIORITY_OPTIONS} />
+            </Field>
           </div>
-        </div>
-      )}
+
+          <Field label="Event link">
+            <div className="relative">
+              <LinkIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+              <input type="url" placeholder="https://…" value={formLink}
+                onChange={e => setFormLink(e.target.value)}
+                className={`${inputCls} !pl-8`} />
+            </div>
+          </Field>
+
+          <Group label="Perks">
+            <div className="flex flex-wrap gap-1.5">
+              <PerkChip on={formPpi} onClick={() => setFormPpi(p => !p)}
+                icon={ShieldCheck} tone="text-emerald-400" label="PPI" title="Offers a pre-placement interview" />
+              <PerkChip on={formTravel} onClick={() => setFormTravel(t => !t)}
+                icon={Flame} tone="text-amber-400" label="Travel covered" title="Travel is reimbursed" />
+              <PerkChip on={formOnsite} onClick={() => setFormOnsite(o => !o)}
+                icon={MapPin} tone="text-accent-400" label="Onsite" title="In-person event" />
+              <PerkChip on={formRemote} onClick={() => setFormRemote(r => !r)}
+                icon={Globe} tone="text-slate-200" label="Remote" title="Join from anywhere" />
+            </div>
+          </Group>
+
+          <Field label="Notes">
+            <textarea rows={4} placeholder="Project ideas, team, requirements…" value={formNotes}
+              onChange={e => setFormNotes(e.target.value)}
+              className="input-premium w-full px-3 py-2 rounded-lg text-[13px] resize-y min-h-[88px] leading-relaxed" />
+          </Field>
+
+          {/* Retro, only once the event has resolved. The funnel counted
+              outcomes but recorded nothing about them. */}
+          {(formStatus === 'offered' || formStatus === 'rejected') && (
+            <Field label="Retrospective" hint="What worked, what did not, what to do differently.">
+              <textarea rows={3} placeholder="Looking back…" value={formRetro}
+                onChange={e => setFormRetro(e.target.value)}
+                className="input-premium w-full px-3 py-2 rounded-lg text-[13px] resize-y min-h-[72px] leading-relaxed" />
+            </Field>
+          )}
+
+          {/* Links Section */}
+          <Group label="Links" hint={formLinks.length === 0 ? 'Repo, Devpost, Discord, slides…' : undefined}>
+            {formLinks.length > 0 && (
+              <div className="space-y-2 mb-2">
+                {formLinks.map((link, i) => (
+                  <LinkRow
+                    key={i}
+                    link={link}
+                    index={i}
+                    total={formLinks.length}
+                    onRemove={removeLinkRow}
+                    onChange={changeLinkRow}
+                    onMoveUp={idx => moveLink(idx, -1)}
+                    onMoveDown={idx => moveLink(idx, 1)}
+                  />
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={addLinkRow}
+              className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
+              <Plus size={13} /> Add link
+            </button>
+          </Group>
+
+          <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
+        </form>
+      </Modal>
 
       {/* ── DELETE CONFIRM ── */}
-      {deleteConfirmId && (
-        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div role="alertdialog" aria-modal="true" aria-label="Delete hackathon" className="modal-surface w-full max-w-sm rounded-xl overflow-hidden">
-            <div className="px-5 h-12 border-b border-white/[0.06] flex items-center gap-2.5">
-              <Trash2 size={14} className="text-rose-400" />
-              <h2 className="text-[14px] font-semibold text-slate-100">Delete hackathon</h2>
-            </div>
-            <p className="p-5 text-[13px] text-slate-400 leading-relaxed">
-              Are you sure you want to delete this hackathon? This action cannot be undone.
-            </p>
-            <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2 bg-white/[0.015]">
-              <button onClick={() => setDeleteConfirmId(null)} className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Keep it</button>
-              <button onClick={handleConfirmDelete} className="btn-danger h-8 px-3 text-[13px] rounded-lg cursor-pointer">Delete</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={!!deleteConfirmId}
+        onClose={closeDelete}
+        title="Delete hackathon"
+        width={400}
+        footer={<>
+          <button type="button" onClick={closeDelete} className={btnGhost}>Keep it</button>
+          <button type="button" onClick={handleConfirmDelete}
+            className="btn-danger h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
+            <Trash2 size={13} /> Delete
+          </button>
+        </>}
+      >
+        <p className="text-[13px] text-slate-400 leading-relaxed">
+          {deleteTarget?.name
+            ? <>Delete <span className="text-slate-100 font-medium break-words">{deleteTarget.name}</span>? </>
+            : 'Delete this hackathon? '}
+          This action cannot be undone.
+        </p>
+      </Modal>
 
       {/* ── DETAILS MODAL ── */}
       {selectedAppDetails && (
         <AppDetailModal
           app={selectedAppDetails}
-          onClose={() => setSelectedAppDetails(null)}
+          onClose={closeDetails}
           onEdit={handleOpenEdit}
           nearestAppId={nearestAppId}
         />
@@ -762,34 +819,33 @@ export default function TimelineView({
 }
 
 /* ── Utility sub-components ── */
-function Field({ label, required, children }) {
+/* Field look-alike for groups of several controls. ui's Field is a <label>,
+   which would forward stray clicks to the first button inside it. */
+function Group({ label, hint, children }) {
   return (
-    <div>
-      <label className="block text-[12px] font-medium text-slate-400 mb-1.5">
-        {label}{required && <span className="text-rose-400 ml-0.5">*</span>}
-      </label>
+    <div role="group" aria-label={label}>
+      <span className="block text-[12px] font-medium text-slate-400 mb-1.5">{label}</span>
       {children}
+      {hint && <span className="block text-[11.5px] text-slate-500 mt-1">{hint}</span>}
     </div>
   );
 }
 
-function PerkToggle({ on, onClick, icon: Icon, tone, title, sub }) {
+function PerkChip({ on, onClick, icon: Icon, tone, label, title }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={on}
-      className={`flex items-center gap-2.5 h-12 px-3 rounded-lg border text-left transition-colors cursor-pointer select-none min-w-0 ${
+      title={title}
+      className={`h-8 sm:h-7 px-2.5 rounded-md border text-[12.5px] sm:text-[12px] inline-flex items-center gap-1.5 transition-colors cursor-pointer select-none whitespace-nowrap ${
         on
-          ? 'bg-white/[0.05] border-white/[0.16] text-slate-100'
-          : 'bg-transparent border-white/[0.07] text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+          ? 'bg-white/[0.09] border-white/[0.16] text-slate-100'
+          : 'border-white/[0.06] text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
       }`}
     >
-      <Icon size={15} className={`shrink-0 ${on ? tone : 'text-slate-500'}`} />
-      <span className="min-w-0">
-        <span className="block text-[12.5px] font-medium leading-tight truncate">{title}</span>
-        <span className="block text-[11.5px] text-slate-500 leading-tight mt-0.5 truncate">{sub}</span>
-      </span>
+      <Icon size={12} className={`shrink-0 ${on ? tone : 'text-slate-500'}`} />
+      {label}
     </button>
   );
 }
@@ -965,25 +1021,43 @@ function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpda
 
 /* ── App Detail Modal with smooth transitions ──────────────── */
 function AppDetailModal({ app, onClose, onEdit, nearestAppId }) {
-  const [isClosing, setIsClosing] = useState(false);
+  // Modal renders in place (no portal), so the wrapper can reach its overlay
+  // and surface to play the existing .closing animation before unmounting.
+  const wrapRef = useRef(null);
+  const closingRef = useRef(false);
 
-  const handleClose = () => {
-    setIsClosing(true);
+  const handleClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    wrapRef.current?.querySelectorAll('.modal-overlay, .modal-surface')
+      .forEach(el => el.classList.add('closing'));
     setTimeout(onClose, 200);
-  };
+  }, [onClose]);
 
   const status = getStatusStyles(app.status);
+  const name = app.name || 'Hackathon';
+  const title = name.length > 56 ? `${name.slice(0, 55).trimEnd()}…` : name;
 
   return (
-    <div className={`modal-overlay fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 pt-[6vh] sm:pt-4 ${isClosing ? 'closing' : ''}`} onClick={handleClose}>
-      <div role="dialog" aria-modal="true" aria-label={app.name}
-        className={`modal-surface w-full max-w-lg rounded-xl overflow-hidden flex flex-col max-h-[88vh] ${isClosing ? 'closing' : ''}`} onClick={e => e.stopPropagation()}>
-        <div className="px-5 h-12 border-b border-white/[0.06] flex items-center justify-between gap-3 shrink-0">
-          <h2 className="text-[14px] font-semibold text-slate-100 truncate">{app.name}</h2>
-          <button onClick={handleClose} className="icon-btn -mr-2 cursor-pointer shrink-0" aria-label="Close"><X size={15} /></button>
-        </div>
-
-        <div className="p-5 space-y-4 flex-1 overflow-y-auto">
+    <div ref={wrapRef} className="contents">
+    <Modal
+      open
+      onClose={handleClose}
+      title={title}
+      width={500}
+      footer={<>
+        <button type="button" onClick={handleClose}
+          className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Close</button>
+        <button type="button" onClick={() => { onEdit(app); onClose(); }}
+          className="btn-primary h-8 px-4 text-[13px] rounded-lg cursor-pointer inline-flex items-center gap-1.5">
+          <Edit3 size={13} /> Edit details
+        </button>
+      </>}
+    >
+        <div className="space-y-4">
+          {title !== name && (
+            <p className="text-[13.5px] font-medium text-slate-100 leading-snug break-words">{name}</p>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {app.id === nearestAppId && (
               <span className={BADGE}><span className="beacon-amber" /> Soonest</span>
@@ -1069,14 +1143,7 @@ function AppDetailModal({ app, onClose, onEdit, nearestAppId }) {
             </div>
           </div>
         </div>
-
-        <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2 bg-white/[0.015] shrink-0">
-          <button onClick={handleClose}
-            className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Close</button>
-          <button onClick={() => { onEdit(app); onClose(); }}
-            className="btn-primary h-8 px-3 text-[13px] rounded-lg cursor-pointer">Edit details</button>
-        </div>
-      </div>
+    </Modal>
     </div>
   );
 }
@@ -1084,56 +1151,63 @@ function AppDetailModal({ app, onClose, onEdit, nearestAppId }) {
 /* ─── Single link row inside form ─────────────────────── */
 function LinkRow({ link, index, total, onRemove, onChange, onMoveUp, onMoveDown }) {
   return (
-    <div className="flex items-center gap-2 p-2 rounded-lg border border-white/[0.06] bg-white/[0.015]">
-      {/* Up/Down buttons for ordering */}
-      <div className="flex flex-col shrink-0">
-        <button
-          type="button"
-          disabled={index === 0}
-          onClick={() => onMoveUp(index)}
-          className={`icon-btn !w-6 !h-[18px] cursor-pointer ${
-            index === 0 ? 'opacity-25 cursor-not-allowed pointer-events-none' : ''
-          }`}
-          title="Move link up"
-        >
-          <ChevronUp size={12} />
-        </button>
-        <button
-          type="button"
-          disabled={index === total - 1}
-          onClick={() => onMoveDown(index)}
-          className={`icon-btn !w-6 !h-[18px] cursor-pointer ${
-            index === total - 1 ? 'opacity-25 cursor-not-allowed pointer-events-none' : ''
-          }`}
-          title="Move link down"
-        >
-          <ChevronDown size={12} />
-        </button>
-      </div>
+    <div className="flex items-center gap-1.5 p-1.5 sm:p-0 rounded-lg border border-white/[0.06] sm:border-0 bg-white/[0.015] sm:bg-transparent">
+      {/* Up/Down buttons for ordering (hidden when there is nothing to reorder) */}
+      {total > 1 && (
+        <div className="flex flex-col shrink-0 -my-0.5">
+          <button
+            type="button"
+            disabled={index === 0}
+            onClick={() => onMoveUp(index)}
+            className={`icon-btn !w-6 !h-4 cursor-pointer ${
+              index === 0 ? 'opacity-25 cursor-not-allowed pointer-events-none' : ''
+            }`}
+            title="Move link up"
+            aria-label="Move link up"
+          >
+            <ChevronUp size={12} />
+          </button>
+          <button
+            type="button"
+            disabled={index === total - 1}
+            onClick={() => onMoveDown(index)}
+            className={`icon-btn !w-6 !h-4 cursor-pointer ${
+              index === total - 1 ? 'opacity-25 cursor-not-allowed pointer-events-none' : ''
+            }`}
+            title="Move link down"
+            aria-label="Move link down"
+          >
+            <ChevronDown size={12} />
+          </button>
+        </div>
+      )}
 
-      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-1.5">
+        <input
+          type="text"
+          placeholder="Label, e.g. GitHub"
+          aria-label="Link label"
+          value={link.label}
+          onChange={e => onChange(index, { ...link, label: e.target.value })}
+          className="input-premium h-8 px-2.5 text-[13px] rounded-lg w-full min-w-0"
+        />
         <input
           type="url"
           placeholder="https://…"
+          aria-label="Link URL"
           value={link.url}
           onChange={e => onChange(index, { ...link, url: e.target.value })}
-          className="input-premium h-8 px-2.5 text-[12.5px] rounded-lg w-full min-w-0"
-        />
-        <input
-          type="text"
-          placeholder="Label (e.g. GitHub)"
-          value={link.label}
-          onChange={e => onChange(index, { ...link, label: e.target.value })}
-          className="input-premium h-8 px-2.5 text-[12.5px] rounded-lg w-full min-w-0"
+          className="input-premium h-8 px-2.5 text-[13px] rounded-lg w-full min-w-0"
         />
       </div>
       <button
         type="button"
         onClick={() => onRemove(index)}
-        className="icon-btn !w-7 !h-7 cursor-pointer shrink-0 hover:!text-rose-400"
+        className="icon-btn !w-8 !h-8 cursor-pointer shrink-0 hover:!text-rose-400"
         title="Remove link"
+        aria-label="Remove link"
       >
-        <X size={13} />
+        <X size={14} />
       </button>
     </div>
   );

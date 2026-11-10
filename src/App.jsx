@@ -6,6 +6,7 @@ import IdeasSection from './components/IdeasSection';
 import TasksView from './components/TasksView';
 import BoardView from './components/BoardView';
 import QuotesView from './components/QuotesView';
+import CalendarView from './components/CalendarView';
 import DashboardView from './components/DashboardView';
 import ReviewView from './components/ReviewView';
 import CommandPalette from './components/CommandPalette';
@@ -218,7 +219,7 @@ function AccessGranted({ onComplete }) {
 }
 
 /* ================= lock screen ================= */
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const KEYS = [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'], ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ']];
 
 function LockScreen({ onAuthorize }) {
   const [pin, setPin] = useState('');
@@ -228,18 +229,27 @@ function LockScreen({ onAuthorize }) {
   const [unlocking, setUnlocking] = useState(false);
   const [activeKey, setActiveKey] = useState(null);
   const [clock, setClock] = useState(() => new Date());
+  // One quote for the lock screen, chosen per day from your saved quotes.
+  const [quote] = useState(() => {
+    try {
+      const all = quoteStore.getAll();
+      if (!all.length) return null;
+      const d = new Date();
+      return all[(d.getFullYear() * 372 + d.getMonth() * 31 + d.getDate()) % all.length];
+    } catch { return null; }
+  });
 
   const correctPin = import.meta.env.VITE_APP_PIN;
   const pinLength = correctPin ? String(correctPin).length : 4;
 
   useEffect(() => {
-    const t = setInterval(() => setClock(new Date()), 15000);
+    const t = setInterval(() => setClock(new Date()), 5000);
     return () => clearInterval(t);
   }, []);
 
   const flash = key => {
     setActiveKey(key);
-    setTimeout(() => setActiveKey(k => (k === key ? null : k)), 130);
+    setTimeout(() => setActiveKey(k => (k === key ? null : k)), 140);
   };
 
   const press = digit => {
@@ -258,8 +268,8 @@ function LockScreen({ onAuthorize }) {
             setError(true);
             setShake(true);
             setErrorCount(c => c + 1);
-            setTimeout(() => { setShake(false); setPin(''); }, 380);
-          }, 120);
+            setTimeout(() => { setShake(false); setPin(''); }, 420);
+          }, 140);
         }
       }
       return next;
@@ -290,88 +300,126 @@ function LockScreen({ onAuthorize }) {
   });
 
   const status = !correctPin
-    ? 'No passcode configured. Set VITE_APP_PIN in your .env file.'
+    ? 'No passcode set. Add VITE_APP_PIN to your .env file.'
     : error
-      ? 'Incorrect passcode. Try again.'
+      ? errorCount >= 3 ? 'Still not right. Take a breath and try again.' : 'Wrong passcode. Try again.'
       : unlocking ? 'Unlocked' : 'Enter your passcode';
 
+  const time = clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
   return (
-    <div className="lock-bg w-screen h-[100dvh] relative overflow-hidden select-none flex flex-col">
-      <div className="lock-grid" />
+    <div className="lock-screen w-screen h-[100dvh] relative overflow-hidden select-none flex flex-col">
+      <div className="lock-aurora" aria-hidden="true"><span /><span /></div>
+      <div className="lock-noise" aria-hidden="true" />
 
       {/* top bar */}
-      <div className="relative flex items-center justify-between px-6 h-14 text-[13px] text-slate-500 fade-up">
-        <span className="flex items-center gap-2"><Logo size={18} /> <span className="text-slate-300 font-medium">AnonVault</span></span>
-        <span className="tabular-nums">
-          {clock.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-          <span className="text-slate-700 mx-2">·</span>
-          {clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      <div className="relative flex items-center justify-between px-5 sm:px-8 h-14 shrink-0 fade-up">
+        <span className="flex items-center gap-2.5">
+          <Logo size={20} />
+          <span className="text-[14px] text-slate-200 font-semibold tracking-[-0.01em]">AnonVault</span>
+        </span>
+        <span className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[12px] border transition-colors duration-300 ${
+          unlocking ? 'text-emerald-300 border-emerald-400/30 bg-emerald-400/[0.08]' : 'text-slate-400 border-white/[0.08] bg-white/[0.03]'}`}>
+          {unlocking ? <LockOpen size={12} /> : <Lock size={12} />}
+          {unlocking ? 'Unlocked' : 'Locked'}
         </span>
       </div>
 
-      {/* center */}
-      <div className="relative flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-6 pb-6 sm:pb-14">
-        <div className="w-full max-w-[300px] flex flex-col items-center">
-          <div className="fade-up" style={{ animationDelay: '40ms' }}>
-            <div className="w-12 h-12 rounded-xl border border-white/[0.08] bg-white/[0.03] flex items-center justify-center"
-              style={{ transition: 'border-color .3s ease, background-color .3s ease', ...(unlocking ? { borderColor: 'rgba(79,209,160,0.4)', background: 'rgba(79,209,160,0.08)' } : {}) }}>
-              {unlocking
-                ? <LockOpen size={18} className="text-emerald-400" />
-                : <Lock size={18} className={error ? 'text-rose-400' : 'text-slate-300'} />}
+      {/* body */}
+      <div className="relative flex-1 min-h-0 overflow-y-auto">
+        <div className="min-h-full max-w-[1040px] mx-auto px-5 sm:px-8 py-3 sm:py-5 grid lg:grid-cols-[1fr_380px] gap-6 lg:gap-16 items-center">
+
+          {/* clock side */}
+          <div className="lock-clock text-center lg:text-left fade-up" style={{ animationDelay: '40ms' }}>
+            <p className="text-[64px] sm:text-[96px] lg:text-[128px] leading-[0.9] font-extralight tracking-[-0.05em] text-slate-50 tabular-nums">
+              {time}
+            </p>
+            <p className="text-[15px] sm:text-[17px] text-slate-400 mt-3 sm:mt-4">
+              {clock.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            {quote && (
+              <figure className="hidden lg:block mt-10 max-w-[420px] border-l border-white/[0.1] pl-4">
+                <blockquote className="text-[15px] leading-relaxed text-slate-300">“{quote.text}”</blockquote>
+                {quote.author && quote.author !== 'Unknown' && <figcaption className="text-[13px] text-slate-500 mt-2">— {quote.author}</figcaption>}
+              </figure>
+            )}
+          </div>
+
+          {/* passcode card */}
+          <div className="lock-card w-full max-w-[380px] mx-auto rounded-[28px] sm:px-8 sm:py-7 fade-up" style={{ animationDelay: '100ms' }}>
+            <div className="flex flex-col items-center">
+              <div className={`lock-avatar mb-4 w-12 h-12 rounded-full flex items-center justify-center transition-[background-color,color,box-shadow] duration-300 ${
+                unlocking ? 'bg-emerald-400/12 text-emerald-300 shadow-[0_0_0_6px_rgba(79,209,160,0.06)]'
+                  : error ? 'bg-rose-400/12 text-rose-300 shadow-[0_0_0_6px_rgba(245,118,138,0.06)]'
+                  : 'bg-white/[0.06] text-slate-200 shadow-[0_0_0_6px_rgba(255,255,255,0.025)]'}`}>
+                <span key={unlocking ? 'open' : 'closed'} className="fade-up">
+                  {unlocking ? <LockOpen size={20} strokeWidth={1.8} /> : <Lock size={20} strokeWidth={1.8} />}
+                </span>
+              </div>
+              <h1 className="text-[20px] font-semibold tracking-[-0.02em] text-slate-50">Welcome back</h1>
+              <p aria-live="polite"
+                className={`mt-1 text-[13px] text-center min-h-[20px] transition-colors ${error || !correctPin ? 'text-rose-400' : unlocking ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {status}
+              </p>
+
+              {/* PIN cells */}
+              <div className={`flex gap-3 mt-5 mb-6 ${shake ? 'animate-shake' : ''}`}
+                aria-label={`${pin.length} of ${pinLength} digits entered`}>
+                {Array.from({ length: pinLength }).map((_, i) => {
+                  const filled = i < pin.length;
+                  const current = i === pin.length && !unlocking && !error;
+                  return (
+                    <span key={i} className={`pin-cell ${filled ? 'filled' : ''} ${current ? 'current' : ''} ${unlocking ? 'ok' : ''} ${error ? 'error' : ''}`}>
+                      <span className="pin-cell-dot" />
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* keypad */}
+              <div className="grid grid-cols-3 gap-x-5 gap-y-3">
+                {KEYS.map(([k, letters]) => (
+                  <button key={k} onClick={() => press(k)} disabled={unlocking}
+                    data-active={activeKey === k ? 'true' : undefined}
+                    className="key-round cursor-pointer" aria-label={k}>
+                    <span className="text-[26px] leading-none font-light tabular-nums">{k}</span>
+                    <span className="text-[9px] tracking-[0.16em] text-slate-500 h-3 mt-0.5">{letters}</span>
+                  </button>
+                ))}
+                <button onClick={clear} disabled={unlocking || !pin}
+                  className="key-round key-round--ghost cursor-pointer text-[13px] disabled:opacity-0 transition-opacity">
+                  Clear
+                </button>
+                <button onClick={() => press('0')} disabled={unlocking}
+                  data-active={activeKey === '0' ? 'true' : undefined}
+                  className="key-round cursor-pointer" aria-label="0">
+                  <span className="text-[26px] leading-none font-light tabular-nums">0</span>
+                  <span className="text-[9px] h-3 mt-0.5">&nbsp;</span>
+                </button>
+                <button onClick={backspace} disabled={unlocking || !pin} aria-label="Delete last digit"
+                  data-active={activeKey === 'back' ? 'true' : undefined}
+                  className="key-round key-round--ghost cursor-pointer disabled:opacity-0 transition-opacity">
+                  <Delete size={20} strokeWidth={1.6} />
+                </button>
+              </div>
+
+              <p className="lock-hint mt-6 text-[12px] text-slate-600 hidden sm:flex items-center gap-1.5">
+                or type it <span className="kbd">0</span>–<span className="kbd">9</span> · <span className="kbd">Esc</span> clears
+              </p>
             </div>
           </div>
-
-          <h1 className="mt-5 text-[19px] font-semibold tracking-[-0.02em] text-slate-50 fade-up" style={{ animationDelay: '70ms' }}>
-            Welcome back
-          </h1>
-          <p aria-live="polite"
-            className={`mt-1 text-[13px] text-center min-h-[20px] transition-colors fade-up ${error || !correctPin ? 'text-rose-400' : unlocking ? 'text-emerald-400' : 'text-slate-500'}`}
-            style={{ animationDelay: '100ms' }}>
-            {status}
-          </p>
-
-          {/* dots */}
-          <div className={`flex gap-3.5 mt-6 mb-8 ${shake ? 'animate-shake' : ''}`} aria-label={`${pin.length} of ${pinLength} digits entered`}>
-            {Array.from({ length: pinLength }).map((_, i) => (
-              <span key={i} className={`pin-dot ${i < pin.length ? (unlocking ? 'ok' : error ? 'error' : 'filled') : ''}`} />
-            ))}
-          </div>
-
-          {/* keypad */}
-          <div className="grid grid-cols-3 gap-2.5 w-full fade-up" style={{ animationDelay: '140ms' }}>
-            {KEYS.map(k => (
-              <button key={k} onClick={() => press(k)} disabled={unlocking}
-                data-active={activeKey === k ? 'true' : undefined}
-                className="pin-key cursor-pointer text-[20px] font-medium tabular-nums">
-                {k}
-              </button>
-            ))}
-            <button onClick={clear} disabled={unlocking} className="pin-key pin-key--ghost cursor-pointer text-[12.5px] font-medium">Clear</button>
-            <button onClick={() => press('0')} disabled={unlocking}
-              data-active={activeKey === '0' ? 'true' : undefined}
-              className="pin-key cursor-pointer text-[20px] font-medium tabular-nums">0</button>
-            <button onClick={backspace} disabled={unlocking} aria-label="Delete last digit"
-              data-active={activeKey === 'back' ? 'true' : undefined}
-              className="pin-key pin-key--ghost cursor-pointer">
-              <Delete size={18} />
-            </button>
-          </div>
-
-          <p className="lock-hint mt-6 text-[12px] text-slate-600 text-center fade-up" style={{ animationDelay: '180ms' }}>
-            You can type the digits on your keyboard
-          </p>
         </div>
       </div>
 
       {/* footer */}
-      <div className="relative h-12 flex items-center justify-center text-[12px] text-slate-600">
+      <div className="relative h-11 sm:h-12 flex items-center justify-center text-[12px] text-slate-600 shrink-0">
         {errorCount >= 2 ? (
           <a href="https://link.minianon.in/tusharbhardwaj" target="_blank" rel="noopener noreferrer"
             className="text-slate-400 hover:text-slate-100 transition-colors fade-up">
             Locked out? Contact the owner →
           </a>
         ) : (
-          <span>Private workspace · data stays in your vault</span>
+          <span>Private workspace</span>
         )}
       </div>
 
@@ -703,9 +751,10 @@ function AppInner() {
       // A modal or the palette owns the keyboard while it is open.
       if (document.querySelector('.modal-overlay')) return;
 
-      if (e.key >= '1' && e.key <= '9' && TABS[Number(e.key) - 1]) {
+      const slot = e.key === '0' ? 9 : e.key >= '1' && e.key <= '9' ? Number(e.key) - 1 : -1;
+      if (slot >= 0 && TABS[slot]) {
         e.preventDefault();
-        setActiveTab(TABS[Number(e.key) - 1]);
+        setActiveTab(TABS[slot]);
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
@@ -899,6 +948,12 @@ function AppInner() {
 
               <div {...panel('board')}>
                 <BoardView onLock={handleLock} onMenuToggle={menu} showToast={showToast} legacyProjects={projectIdeas} />
+              </div>
+
+              <div {...panel('calendar')}>
+                <CalendarView applications={applications} tasksVersion={tasksVersion} setActiveTab={setActiveTab}
+                  onSelectHackathon={id => { setInitHackathonId(id); setActiveTab('timeline'); }}
+                  onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
               </div>
 
               <div {...panel('quotes')}>

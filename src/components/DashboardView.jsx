@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  Check, ChevronRight, ChevronLeft, Plus, Repeat2, Play, Square, CalendarClock, KanbanSquare, Wallet, Quote,
+  Check, ChevronRight, ChevronLeft, Plus, Repeat2, Play, Square, CalendarClock, KanbanSquare, Wallet, Quote, Receipt, CircleDollarSign,
   CheckSquare, Timer, ArrowUpRight, ArrowDownRight, Flame,
 } from 'lucide-react';
 import {
@@ -12,10 +12,40 @@ import {
 } from '../services/focus';
 import {
   transactions, useMoneySettings, formatMoney, summarizeMonth, monthKey, spentOn, ymd, categoryMeta,
+  emis, emiStats, incomeSources, receivedFrom, payEmi, receiveIncome, monthLabel,
 } from '../services/money';
 import { board, dueInfo, moveItem } from '../services/board';
 import { quotes, dayOffset } from '../services/quotes';
 import { PageHeader, Card, CardHeader, LinkButton, Stat, Progress, Empty } from './ui';
+
+const QUICK_ACTIONS = [
+  { id: 'task', label: 'Task', icon: Plus },
+  { id: 'timer', label: 'Timer', icon: Play },
+  { id: 'expense', label: 'Expense', icon: Receipt },
+  { id: 'board', label: 'Card', icon: KanbanSquare },
+  { id: 'quotes', label: 'Quote', icon: Quote },
+];
+
+/* Tasks done today as a ring. Fills smoothly when you tick things off. */
+function ProgressRing({ value, label, sub, onClick }) {
+  const r = 34, c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(1, value || 0));
+  const color = pct >= 1 ? 'var(--ok)' : 'var(--text-1)';
+  return (
+    <button onClick={onClick} className="hidden sm:flex relative w-[92px] h-[92px] shrink-0 items-center justify-center cursor-pointer group" title="Open checklist">
+      <svg width="92" height="92" viewBox="0 0 92 92" className="absolute inset-0 -rotate-90">
+        <circle cx="46" cy="46" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="6" />
+        <circle cx="46" cy="46" r={r} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c * (1 - pct)}
+          style={{ transition: 'stroke-dashoffset 0.8s var(--ease), stroke 0.3s ease' }} />
+      </svg>
+      <span className="relative text-center">
+        <span className="block text-[17px] font-semibold tabular-nums text-slate-100 leading-none">{label}</span>
+        <span className="block text-[11px] text-slate-500 mt-1 group-hover:text-slate-300 transition-colors">{sub}</span>
+      </span>
+    </button>
+  );
+}
 
 /* Your saved quotes, one after another. Pauses while hovered. */
 function QuoteRotator({ onOpen }) {
@@ -109,6 +139,7 @@ export default function DashboardView({
   const [newTask, setNewTask] = useState('');
   const [focusLabel, setFocusLabel] = useState('');
   const taskInputRef = useRef(null);
+  const focusInputRef = useRef(null);
 
   /* ── tasks ── */
   const loadTodayTasks = useCallback(async () => {
@@ -131,7 +162,7 @@ export default function DashboardView({
   }, [tasksVersion, todayStr]);
 
   useEffect(() => {
-    const onNew = () => taskInputRef.current?.focus();
+    const onNew = () => { if (taskInputRef.current?.closest('[aria-hidden="false"]')) taskInputRef.current.focus(); };
     window.addEventListener('anonvault:new', onNew);
     return () => window.removeEventListener('anonvault:new', onNew);
   }, []);
@@ -198,6 +229,44 @@ export default function DashboardView({
   const spentToday = spentOn(allTx, todayStr);
   const budget = Number(settings.monthlyBudget) || 0;
   const fmt = n => formatMoney(n, settings.currency);
+  const thisMonth = monthKey();
+
+  /* Money that should move this month and hasn't yet: unpaid EMIs and
+     income sources with nothing received. One click to tick either off. */
+  const emiList = emis.useAll();
+  const sourceList = incomeSources.useAll();
+  const dueItems = [
+    ...emiList.map(e => ({ e, st: emiStats(e) }))
+      .filter(({ st }) => !st.done && !st.paidThisMonth)
+      .map(({ e, st }) => ({ kind: 'emi', id: e.id, name: e.name, amount: st.amount, run: () => {
+        const r = payEmi(e);
+        showToast?.('success', `${monthLabel(r.month, { month: 'short' })} EMI paid`, `${fmt(r.amount)} · ${e.name}`, 6000, { label: 'Undo', onClick: r.undo });
+      } })),
+    ...sourceList
+      .filter(s => s.active !== false && s.frequency !== 'one-time' && receivedFrom(allTx, s.id, thisMonth).length === 0)
+      .map(s => ({ kind: 'income', id: s.id, name: s.name, amount: s.kind === 'range' ? null : Number(s.amount) || 0, range: s.kind === 'range' ? [s.min, s.max] : null, run: () => {
+        if (s.kind === 'range') {
+          setActiveTab('money');
+          window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: 'income' }));
+          return;
+        }
+        const r = receiveIncome(s, thisMonth, s.amount);
+        showToast?.('success', `${monthLabel(thisMonth, { month: 'short' })} received`, `${fmt(s.amount)} · ${s.name}`, 6000, { label: 'Undo', onClick: r.undo });
+      } })),
+  ];
+
+  const quick = id => {
+    if (id === 'task') taskInputRef.current?.focus();
+    else if (id === 'timer') focusInputRef.current?.focus();
+    else if (id === 'expense') go('money', 'overview');
+    else go(id);
+  };
+
+  const go = (tab, moneyTab) => {
+    setActiveTab(tab);
+    if (moneyTab) window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: moneyTab }));
+    setTimeout(() => window.dispatchEvent(new CustomEvent('anonvault:new')), 80);
+  };
 
   /* ── deadlines & projects ── */
   const hackProgress = useMemo(() => getHackathonProgress(),
@@ -227,23 +296,44 @@ export default function DashboardView({
 
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title="Today" subtitle={clock.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+      <PageHeader title="Today"
+        stats={[
+          { value: tasks.length - done, label: 'tasks left' },
+          { value: boardItems.filter(i => dueInfo(i)?.tone === 'bad').length, label: 'overdue', tone: 'bad' },
+          { value: dueItems.length, label: 'money due', tone: 'warn' },
+          { value: running.length, label: 'running', tone: 'good' },
+        ]}
         onMenuToggle={onMenuToggle} onLock={onLock} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1200px] mx-auto px-4 lg:px-6 py-6 space-y-5 reveal-stagger">
 
-          {/* Greeting */}
-          <div className="flex items-end justify-between gap-4 pt-1">
-            <div className="min-w-0">
-              <h2 className="text-[24px] sm:text-[26px] font-semibold tracking-[-0.03em] text-slate-50">{greetingFor(hour)}.</h2>
-              <p className="text-[14px] text-slate-500 mt-0.5 truncate">
-                {summaryParts.length ? summaryParts.join(' · ') : 'Nothing scheduled yet. Add a task or start a timer.'}
-              </p>
+          {/* Hero */}
+          <div className="panel relative overflow-hidden p-5 sm:p-6">
+            <div className="absolute inset-0 pointer-events-none"
+              style={{ background: 'radial-gradient(70% 120% at 100% 0%, rgba(79,123,255,0.07) 0%, transparent 60%)' }} />
+            <div className="relative flex items-center gap-6">
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] text-slate-500">
+                  {clock.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                  <span className="text-slate-700 mx-1.5">·</span>
+                  <span className="font-mono tabular-nums">{clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </p>
+                <h2 className="text-[24px] sm:text-[28px] font-semibold tracking-[-0.03em] text-slate-50 mt-1">{greetingFor(hour)}.</h2>
+                <p className="text-[14px] text-slate-400 mt-1">
+                  {summaryParts.length ? summaryParts.join(' · ') : 'Nothing scheduled yet. Add a task or start a timer.'}
+                </p>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {QUICK_ACTIONS.map(a => (
+                    <button key={a.label} onClick={() => quick(a.id)}
+                      className="h-8 px-3 rounded-lg text-[12.5px] font-medium text-slate-300 bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] hover:text-slate-100 transition-colors cursor-pointer inline-flex items-center gap-1.5">
+                      <a.icon size={13} className="text-slate-500" /> {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <ProgressRing value={tasks.length ? done / tasks.length : 0} label={tasks.length ? `${done}/${tasks.length}` : '—'} sub="tasks" onClick={() => setActiveTab('tasks')} />
             </div>
-            <span className="hidden sm:block font-mono text-[13px] text-slate-500 tabular-nums shrink-0">
-              {clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
           </div>
 
           {/* Stats */}
@@ -364,7 +454,7 @@ export default function DashboardView({
                     </div>
                   ))}
                   <form onSubmit={quickStart} className="flex items-center gap-2">
-                    <input value={focusLabel} onChange={e => setFocusLabel(e.target.value)}
+                    <input ref={focusInputRef} value={focusLabel} onChange={e => setFocusLabel(e.target.value)}
                       placeholder={running.length ? 'Start another in parallel…' : 'What are you working on?'}
                       className="input-premium flex-1 h-9 px-3 rounded-lg text-[13px]" />
                     <button type="submit" className="btn-primary h-9 w-9 rounded-lg flex items-center justify-center cursor-pointer" title="Start timer">
@@ -411,6 +501,26 @@ export default function DashboardView({
                     })}
                     {month.rows.length === 0 && <p className="text-[12.5px] text-slate-500 py-2">No transactions this month yet.</p>}
                   </div>
+                  {dueItems.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                      <p className="eyebrow mb-1.5">Due this month</p>
+                      {dueItems.slice(0, 5).map(d => (
+                        <div key={d.kind + d.id} className="flex items-center gap-2 h-8 text-[12.5px]">
+                          {d.kind === 'emi'
+                            ? <CalendarClock size={12} className="text-amber-400 shrink-0" />
+                            : <CircleDollarSign size={12} className="text-emerald-400 shrink-0" />}
+                          <span className="text-slate-300 truncate flex-1">{d.name}</span>
+                          <span className="text-slate-500 tabular-nums shrink-0">
+                            {d.amount != null ? fmt(d.amount) : `${fmt(d.range[0])}+`}
+                          </span>
+                          <button onClick={d.run}
+                            className="h-6 px-2 rounded-md text-[11.5px] text-slate-300 border border-white/[0.08] hover:bg-white/[0.07] hover:text-slate-100 cursor-pointer shrink-0 transition-colors">
+                            {d.kind === 'emi' ? 'Paid' : 'Received'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </Card>
 

@@ -7,6 +7,7 @@
 
    { id, title, description, status: 'todo'|'doing'|'done',
      priority: 'low'|'medium'|'high', label, due_date 'YYYY-MM-DD'|null,
+     due_time 'HH:MM'|null, links: [{ url, label }], images: [url],
      rank (number, lower = higher in its column), done_at, promoted_from,
      created_at }
    ───────────────────────────────────────────────────────── */
@@ -40,7 +41,8 @@ export function addItem({ title, status = 'todo', ...rest }) {
   const clean = (title || '').trim();
   if (!clean) return null;
   return board.add({
-    title: clean, description: '', priority: 'medium', label: '', due_date: null,
+    title: clean, description: '', priority: 'medium', label: '', due_date: null, due_time: null,
+    links: [], images: [],
     ...rest, status, rank: topRank(status), done_at: status === 'done' ? new Date().toISOString() : null,
   });
 }
@@ -68,12 +70,18 @@ export function moveItem(id, status, beforeId = null) {
 
 export function dueInfo(item, today = new Date()) {
   if (!item.due_date || item.status === 'done') return null;
+  const at = item.due_time
+    ? ' ' + new Date(2000, 0, 1, ...item.due_time.split(':').map(Number)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : '';
   const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const d = new Date(item.due_date + 'T00:00:00');
   const days = Math.round((d - t0) / 86400000);
   if (days < 0) return { days, text: `${-days}d overdue`, tone: 'bad' };
-  if (days === 0) return { days, text: 'Due today', tone: 'warn' };
-  if (days === 1) return { days, text: 'Tomorrow', tone: 'warn' };
-  if (days <= 7) return { days, text: d.toLocaleDateString(undefined, { weekday: 'short' }), tone: 'neutral' };
-  return { days, text: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), tone: 'neutral' };
+  if (days === 0) {
+    const late = item.due_time && new Date(`${item.due_date}T${item.due_time}`) < today;
+    return { days, text: (late ? 'Overdue' : 'Today') + at, tone: late ? 'bad' : 'warn' };
+  }
+  if (days === 1) return { days, text: 'Tomorrow' + at, tone: 'warn' };
+  if (days <= 7) return { days, text: d.toLocaleDateString(undefined, { weekday: 'short' }) + at, tone: 'neutral' };
+  return { days, text: d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + at, tone: 'neutral' };
 }

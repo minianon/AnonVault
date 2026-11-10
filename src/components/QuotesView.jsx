@@ -40,7 +40,7 @@ export default function QuotesView({ onLock, onMenuToggle, showToast }) {
   const textRef = useRef(null);
 
   useEffect(() => {
-    const onNew = () => textRef.current?.focus();
+    const onNew = () => { if (textRef.current?.closest('[aria-hidden="false"]')) textRef.current.focus(); };
     window.addEventListener('anonvault:new', onNew);
     return () => window.removeEventListener('anonvault:new', onNew);
   }, []);
@@ -58,7 +58,7 @@ export default function QuotesView({ onLock, onMenuToggle, showToast }) {
 
   return (
     <div className="h-full flex flex-col">
-      <PageHeader title="Quotes" subtitle={`${all.length} saved · shown in turn on Today`} onMenuToggle={onMenuToggle} onLock={onLock} />
+      <PageHeader title="Quotes" stats={[{ value: all.length, label: 'saved', always: true }]} onMenuToggle={onMenuToggle} onLock={onLock} />
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[860px] mx-auto px-4 lg:px-6 py-6 space-y-5">
           <Card className="p-3">

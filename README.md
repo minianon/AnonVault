@@ -28,25 +28,16 @@ Version 2 is a ground-up redesign: a calm neutral interface (Geist type, hairlin
 
 | # | Section | What it is for |
 | :--- | :--- | :--- |
-| 1 | **Today** | The home screen: today's checklist, Board cards in progress or due, running timers, spending against budget, the next deadlines, and your quotes shown one after another. |
+| 1 | **Today** | The home screen: a hero with quick actions (task, timer, expense, card, quote) and a progress ring; today's checklist, Board cards in progress or due, running timers, spending against budget, the next deadlines, and your quotes shown one after another. |
 | 2 | **Checklist** | Recurring (daily / weekdays / weekends / custom weekly) and one-off daily tasks with subtasks and priorities, per-day completion and a one-line daily log. |
-| 3 | **Board** | Issues, to-dos and reminders for anything — a project, a company, yourself. To do → In progress → Done, drag or click to move, labels, priority and a due date that turns a card into a reminder on Today. Old Projects items import in one click. |
-| 4 | **Focus** | "What am I doing right now." Start a timer with a label, a free-text **source** (company, client…) and a project. Several can run at once; the day timeline shows parallel work in lanes. Hours per source next to the income it brought in. |
-| 5 | **Money** | **Overview:** log spending/income in seconds, budget bar with even-pace marker, category and daily charts, CSV export. **Income sources:** fixed amount or min–max range, linked to a company, received/partial/pending each month. **EMIs:** monthly amount and an optional number of months (empty = no end); mark paid also logs the expense. **Investments:** invested vs current value, gain/loss, allocation. **Lending:** lent/borrowed, repayments, due dates, per-person balance. |
-| 6 | **Ideas** | Two tabs. **Project:** idea capture with tags, links and images; send one to the Board when it's time. **Income:** side-income ideas with rough monthly potential, from idea → testing → earning. |
-| 7 | **Hackathons** | Deadlines, onsite/remote, travel, links and notes; a per-event checklist and a retrospective. |
-| 8 | **Review** | Completion rate and streaks over 7/30/90 days, skipped tasks, the hackathon funnel and targets. |
-| 9 | **Quotes** | Your quote collection. Today rotates through them. |
-
---- | :--- | :--- |
-| 1 | **Today** | The home screen. Today's tasks with inline add and subtasks, running timers, focused time, today's and this month's spending against budget, the next deadlines and the projects you are building. |
-| 2 | **Tasks** | Recurring (daily / weekdays / weekends / custom weekly) and one-off tasks with subtasks and priorities, per-day completion, mark-all-done, and a one-line daily log. |
-| 3 | **Focus** | "What am I doing right now." Start a timer with a label, a **company** and an optional project. **Several can run at once** — the day timeline lays parallel work out in lanes instead of summing it away. A Companies table shows hours per company this week/month next to the income it brought in. Last-7-days chart, time by activity / company / project, a full log with one-click restart. |
-| 4 | **Money** | Five tabs. **Overview:** log an expense or income in seconds, monthly totals, net and savings rate, a budget bar with an even-pace marker, spending by category and by day, searchable history, CSV export. **Income sources:** each source (stipend, retainer, freelance) with a fixed amount or a min–max range, linked to a company, tracked as received / partial / pending each month. **EMIs:** each instalment plan with amount, tenure and due day — paid x of n, amount left, end month, due/overdue alerts, and one-click "mark paid" that also logs the expense. **Investments:** SIPs, stocks, FDs, gold, crypto — invested vs current value, gain/loss and allocation. **Lending:** money you lent or borrowed, repayments, due dates, overdue, and a per-person balance. INR by default; currency is configurable. |
-| 5 | **Projects** | A Kanban board — `backlog → building → shipped → parked` — with drag between columns, plus a grid view. Start a focus timer on any "building" project from Today. |
-| 6 | **Ideas** | Quick capture with tags, links and images; promote one into Projects when it is ready. A separate **Income ideas** tab keeps side-income ideas with a rough monthly potential and moves them from idea → testing → earning (turning into an income source in Money). |
-| 7 | **Hackathons** | Deadlines, onsite/remote, travel, links and notes; a per-event checklist (one-click six-step template) and a retrospective once it resolves. |
-| 8 | **Review** | Output, not input: completion rate and streaks over 7/30/90 days, consistently skipped tasks, the hackathon funnel and your targets. |
+| 3 | **Board** | Issues, to-dos and reminders for anything — a project, a company, yourself. To do → In progress → Done; drag or click to move. Cards carry a description, links, images (upload or paste), a label, priority, and a due date + time. **Type naturally** — `call bank tomorrow 5pm #personal !high` fills all of that in. Start a **timer on any card** and see time tracked per card. |
+| 4 | **Calendar** | One month view of everything dated: hackathon deadlines, Board due dates, EMIs, income received and dated checklist tasks. Filter by type, pick a day for its agenda (with focus time and spend), tick cards/EMIs off, or add a card on that day. |
+| 5 | **Focus** | "What am I doing right now." Start a timer with a label, a free-text **source** (company, client…) and a project. Several can run at once; the day timeline shows parallel work in lanes. Hours per source next to the income it brought in. |
+| 6 | **Money** | **Overview:** log an expense or *extra income* (money that isn't one of your monthly sources) in seconds, budget bar with even-pace marker, category and daily charts, CSV export. **Income sources:** fixed amount or min–max range, linked to a company — tick off "Nov received", "Dec received"; click a tick to undo. **EMIs:** monthly amount and optional number of months (empty = no end); "Nov paid" ticks log the expense and undo on click. **Investments:** trading accounts, SIPs, stocks, FDs, gold, crypto — money put in, withdrawn and the balance now, profit that counts withdrawals, full history with undo. **Lending:** lent/borrowed, repayments, due dates, per-person balance. |
+| 7 | **Ideas** | Two tabs. **Project:** idea capture with tags, links and images; send one to the Board when it's time. **Income:** side-income ideas with rough monthly potential, from idea → testing → earning. |
+| 8 | **Hackathons** | Deadlines, onsite/remote, travel, links and notes; a per-event checklist and a retrospective. |
+| 9 | **Review** | Completion rate and streaks over 7/30/90 days, skipped tasks, the hackathon funnel and targets. |
+| 10 | **Quotes** | Your quote collection. Today rotates through them. |
 
 ---
 
@@ -55,12 +46,12 @@ Version 2 is a ground-up redesign: a calm neutral interface (Geist type, hairlin
 | Key | Action |
 | :--- | :--- |
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> | Command palette — search everything, jump anywhere, or act |
-| <kbd>1</kbd>–<kbd>9</kbd> | Jump to a section |
+| <kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd> | Jump to a section |
 | <kbd>[</kbd> | Collapse / expand the sidebar |
 | <kbd>n</kbd> | New item in the current section (in Money it focuses the amount; in Focus, the timer label) |
 | <kbd>/</kbd> | Focus the current section's search |
 
-In the palette, typing an amount logs an expense (`250 lunch`), and any other text can start a timer, add a task or save an idea. Shortcuts are ignored while typing and while a dialog is open.
+In the palette, typing an amount logs an expense (`250 lunch`); text with a date (`renew passport in 2 weeks`) becomes a dated Board card; any other text can start a timer, add a task or save an idea. Shortcuts are ignored while typing and while a dialog is open.
 
 ---
 

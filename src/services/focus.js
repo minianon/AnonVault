@@ -28,13 +28,14 @@ export const sessions = createCollection({
   sort: (a, b) => (b.started_at || '').localeCompare(a.started_at || ''),
 });
 
-export function startSession({ label, project = null, company_id = null }) {
+export function startSession({ label, project = null, company_id = null, board_id = null }) {
   const clean = (label || '').trim();
   if (!clean) return null;
   return sessions.add({
     label: clean,
     project: project ? project.trim() || null : null,
     company_id: company_id || null,
+    board_id: board_id || null,
     started_at: new Date().toISOString(),
     ended_at: null,
     note: '',
@@ -127,6 +128,20 @@ export function useNow(intervalMs = 1000, active = true) {
     return () => clearInterval(t);
   }, [intervalMs, active]);
   return now;
+}
+
+/** Total time and the running session (if any) for each Board card. */
+export function boardTime(list, now = Date.now()) {
+  const map = new Map();
+  for (const s of list) {
+    if (!s.board_id) continue;
+    const cur = map.get(s.board_id) || { ms: 0, running: null, count: 0 };
+    cur.ms += durationMs(s, now);
+    cur.count += 1;
+    if (isRunning(s)) cur.running = s;
+    map.set(s.board_id, cur);
+  }
+  return map;
 }
 
 /** Recently used labels, for one-click restarts. */

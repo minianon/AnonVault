@@ -6,6 +6,8 @@ import {
 import { NAV } from '../nav';
 import { startSession, stopAll, sessions, isRunning } from '../services/focus';
 import { transactions, formatMoney, ymd } from '../services/money';
+import { addItem } from '../services/board';
+import { parseCapture, formatWhen } from '../services/nlp';
 
 const KIND_META = {
   task:      { icon: CheckSquare,   label: 'Task' },
@@ -17,6 +19,7 @@ const KIND_META = {
   timer:     { icon: Play,          label: 'Focus' },
   stop:      { icon: Square,        label: 'Focus' },
   money:     { icon: Wallet,        label: 'Money' },
+  card:      { icon: KanbanSquare,  label: 'Board' },
 };
 
 const norm = v => (v || '').toString().toLowerCase();
@@ -99,8 +102,18 @@ export default function CommandPalette({
       if (hit(s.label)) out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate' });
     }
 
+    // A date in the text ("call bank tomorrow 5pm") makes a reminder the
+    // obvious intent, so it goes to the top; otherwise it waits with the others.
+    const parsed = !expense ? parseCapture(raw) : null;
+    const cardAction = parsed && {
+      kind: 'card', id: 'new-card', group: parsed?.date ? 'Suggested' : 'Actions', parsed,
+      title: `Add card “${parsed.title}”${parsed.date ? ` · ${formatWhen(parsed.date, parsed.time)}` : ''}${parsed.label ? ` · ${parsed.label}` : ''}`,
+    };
+    if (cardAction && parsed.date) out.unshift(cardAction);
+
     // Create actions last, so a search term never steals Enter from a real match.
     if (!expense) out.push({ kind: 'timer', id: 'start-timer', title: `Start timer “${raw}”`, group: 'Actions' });
+    if (cardAction && !parsed.date) out.push(cardAction);
     out.push({ kind: 'action', id: 'new-task', title: `Add task “${raw}”`, action: 'task', group: 'Actions' });
     out.push({ kind: 'action', id: 'new-idea', title: `Save idea “${raw}”`, action: 'idea', group: 'Actions' });
 
@@ -131,6 +144,11 @@ export default function CommandPalette({
       case 'stop':
         stopAll();
         break;
+      case 'card': {
+        const p = item.parsed;
+        addItem({ title: p.title, label: p.label || '', priority: p.priority || 'medium', due_date: p.date, due_time: p.time });
+        break;
+      }
       case 'money':
         transactions.add({ type: 'expense', amount: item.expense.amount, category: 'other', note: item.expense.note, method: 'upi', date: ymd() });
         break;
@@ -177,7 +195,7 @@ export default function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search, jump, or type “250 lunch” to log an expense…"
+            placeholder="Search, jump, “250 lunch”, or “call bank tomorrow 5pm”…"
             className="flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder:text-slate-500"
             aria-label="Command"
           />

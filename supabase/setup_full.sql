@@ -149,11 +149,18 @@ CREATE TABLE IF NOT EXISTS public.board_items (
     priority TEXT DEFAULT 'medium',
     label TEXT DEFAULT '',
     due_date TEXT,
+    due_time TEXT,
+    links JSONB NOT NULL DEFAULT '[]'::jsonb,
+    images JSONB NOT NULL DEFAULT '[]'::jsonb,
     rank DOUBLE PRECISION DEFAULT 0,
     done_at TIMESTAMP WITH TIME ZONE,
     promoted_from TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+ALTER TABLE public.board_items ADD COLUMN IF NOT EXISTS due_time TEXT;
+ALTER TABLE public.board_items ADD COLUMN IF NOT EXISTS links JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.board_items ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Sources: the companies / clients you work for
 CREATE TABLE IF NOT EXISTS public.companies (
@@ -171,12 +178,14 @@ CREATE TABLE IF NOT EXISTS public.focus_sessions (
     label TEXT NOT NULL,
     project TEXT,
     company_id UUID,
+    board_id UUID,
     started_at TIMESTAMP WITH TIME ZONE NOT NULL,
     ended_at TIMESTAMP WITH TIME ZONE,
     note TEXT DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 ALTER TABLE public.focus_sessions ADD COLUMN IF NOT EXISTS company_id UUID;
+ALTER TABLE public.focus_sessions ADD COLUMN IF NOT EXISTS board_id UUID;
 CREATE INDEX IF NOT EXISTS focus_sessions_started_idx ON public.focus_sessions (started_at);
 
 -- Money: expenses and income
@@ -240,10 +249,14 @@ CREATE TABLE IF NOT EXISTS public.investments (
     kind TEXT NOT NULL DEFAULT 'other',
     invested NUMERIC(14, 2) NOT NULL DEFAULT 0,
     current_value NUMERIC(14, 2),
+    withdrawn NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    history JSONB NOT NULL DEFAULT '[]'::jsonb,
     date TEXT,
     note TEXT DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+ALTER TABLE public.investments ADD COLUMN IF NOT EXISTS withdrawn NUMERIC(14, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.investments ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Money: lending / borrowing
 CREATE TABLE IF NOT EXISTS public.loans (

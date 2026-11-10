@@ -5,14 +5,14 @@
 
 import { useMemo, useState } from 'react';
 import {
-  Plus, Pencil, Trash2, CheckCircle2, Briefcase, TrendingUp, TrendingDown, HandCoins,
-  CornerDownLeft, PiggyBank, Sparkles, ArrowRight, CalendarClock,
+  Plus, Pencil, Trash2, CheckCircle2, RotateCcw, Briefcase, TrendingUp, HandCoins,
+  PiggyBank, Sparkles, ArrowRight, CalendarClock, ChevronDown, ArrowUpRight,
 } from 'lucide-react';
 import { companies as companyStore, companyById, resolveCompany } from '../services/work';
 import {
   incomeSources, investments, loans, transactions, incomeIdeas, IDEA_STATUSES, emis, emiStats,
   FREQUENCIES, INCOME_CATEGORIES, INVESTMENT_KINDS, investmentKind,
-  expectedPerMonth, currentValue, outstanding, ymd, monthLabel,
+  expectedPerMonth, currentValue, outstanding, ymd, monthLabel, shiftMonth, receivedFrom,
 } from '../services/money';
 import { Card, CardHeader, Stat, Empty, Progress, Segmented, Modal, Field, Select, Combo, inputCls } from './ui';
 
@@ -33,6 +33,30 @@ function Footer({ onCancel, onSave, label = 'Save' }) {
       <button onClick={onCancel} className={btnGhost}>Cancel</button>
       <button onClick={onSave} className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">{label}</button>
     </>
+  );
+}
+
+/* "✓ Nov received" chips that undo on click, then a button for the next
+   month that isn't done yet. Shared by income sources and EMIs. */
+function MonthToggles({ months, isDone, onDo, onUndo, doneLabel, todoLabel }) {
+  const done = months.filter(isDone);
+  const next = months.find(m => !isDone(m));
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+      {done.map(m => (
+        <button key={m} onClick={() => onUndo(m)} title="Click to undo"
+          className="group/chip h-7 px-2.5 rounded-md text-[12px] border cursor-pointer inline-flex items-center gap-1 transition-colors text-emerald-400 border-emerald-400/25 bg-emerald-400/[0.06] hover:text-rose-300 hover:border-rose-400/30 hover:bg-rose-400/[0.06]">
+          <CheckCircle2 size={12} className="group-hover/chip:hidden" />
+          <RotateCcw size={12} className="hidden group-hover/chip:inline" />
+          {monthLabel(m, { month: 'short' })} {doneLabel}
+        </button>
+      ))}
+      {next && (
+        <button onClick={() => onDo(next)} className="btn-ghost h-7 px-2.5 rounded-md text-[12px] cursor-pointer shrink-0">
+          Mark {monthLabel(next, { month: 'short' })} {todoLabel}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -116,10 +140,10 @@ function SourceModal({ initial, onClose }) {
   );
 }
 
-function ReceiveModal({ source, fmt, onClose, showToast }) {
+function ReceiveModal({ source, month, fmt, onClose, showToast }) {
   const suggested = source.kind === 'range' ? source.min : source.amount;
   const [amount, setAmount] = useState(suggested ? String(suggested) : '');
-  const [date, setDate] = useState(ymd());
+  const [date, setDate] = useState(month === ymd().slice(0, 7) ? ymd() : `${month}-01`);
   const save = e => {
     e?.preventDefault();
     if (num(amount) <= 0) return;
@@ -131,8 +155,8 @@ function ReceiveModal({ source, fmt, onClose, showToast }) {
     onClose();
   };
   return (
-    <Modal open onClose={onClose} title={`Received from ${source.name}`} width={400}
-      footer={<Footer onCancel={onClose} onSave={save} label="Log income" />}>
+    <Modal open onClose={onClose} title={`${source.name} · ${monthLabel(month, { month: 'long' })}`} width={400}
+      footer={<Footer onCancel={onClose} onSave={save} label="Mark received" />}>
       <form onSubmit={save} className="space-y-4">
         <Field label="Amount" hint={source.kind === 'range' ? `Expected ${fmt(source.min)}–${fmt(source.max)}` : undefined}>
           {numInput(amount, setAmount, '0')}
@@ -170,6 +194,26 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
       : got >= elo && elo > 0 ? 'received' : got > 0 ? 'partial' : 'pending';
     return { s, got, elo, ehi, status };
   });
+
+  const nextMonth = shiftMonth(month, 1);
+  const isRange = s => s.kind === 'range';
+
+  const markReceived = (s, m) => {
+    if (isRange(s)) { setReceiving({ s, m }); return; }
+    const t = transactions.add({
+      type: 'income', amount: num(s.amount), category: s.category || 'salary', note: s.name, method: 'bank',
+      date: m === ymd().slice(0, 7) ? ymd() : `${m}-01`, source_id: s.id,
+    });
+    showToast?.('success', `${monthLabel(m, { month: 'short' })} received`, `${fmt(t.amount)} · ${s.name}`, 6000,
+      { label: 'Undo', onClick: () => transactions.remove(t.id) });
+  };
+
+  const undoReceived = (s, m) => {
+    const rows = receivedFrom(tx, s.id, m);
+    rows.forEach(t => transactions.remove(t.id));
+    showToast?.('warning', `${monthLabel(m, { month: 'short' })} marked not received`, s.name, 6000,
+      { label: 'Undo', onClick: () => rows.forEach(t => transactions.restore(t)) });
+  };
 
   const remove = s => {
     incomeSources.remove(s.id);
@@ -218,15 +262,11 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
                   </div>
                   <Progress value={elo ? got / elo : got ? 1 : 0} tone={status === 'received' ? 'good' : 'neutral'} height={3} />
                 </div>
-                <span className={`text-[11.5px] px-1.5 h-5 leading-5 rounded-md border shrink-0 ${
-                  status === 'received' ? 'text-emerald-400 border-emerald-400/25 bg-emerald-400/[0.06]'
-                    : status === 'partial' ? 'text-amber-400 border-amber-400/25 bg-amber-400/[0.06]'
-                    : 'text-slate-400 border-white/[0.08] bg-white/[0.03]'}`}>
-                  {status === 'received' ? 'Received' : status === 'partial' ? 'Partial' : status === 'none' ? 'One-time' : 'Pending'}
-                </span>
-                <button onClick={() => setReceiving(s)} className="btn-ghost h-7 px-2.5 rounded-md text-[12px] cursor-pointer inline-flex items-center gap-1 shrink-0">
-                  <CornerDownLeft size={12} /> Log
-                </button>
+                <MonthToggles
+                  months={s.frequency === 'one-time' ? [month] : [month, nextMonth]}
+                  isDone={m => receivedFrom(tx, s.id, m).length > 0}
+                  doneLabel="received" todoLabel="received"
+                  onDo={m => markReceived(s, m)} onUndo={m => undoReceived(s, m)} />
                 <RowActions>
                   <button onClick={() => setEditing(s)} className="icon-btn" title="Edit"><Pencil size={13} /></button>
                   <button onClick={() => remove(s)} className="icon-btn hover:!text-rose-400" title="Delete"><Trash2 size={13} /></button>
@@ -238,64 +278,106 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
       </Card>
 
       {editing && <SourceModal initial={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
-      {receiving && <ReceiveModal source={receiving} fmt={fmt} showToast={showToast} onClose={() => setReceiving(null)} />}
+      {receiving && <ReceiveModal source={receiving.s} month={receiving.m} fmt={fmt} showToast={showToast} onClose={() => setReceiving(null)} />}
     </div>
   );
 }
 
-/* ═══════════════════════ Investments ═══════════════════════ */
+/* ═══════════════════════ Investments ═══════════════════════
+   Each holding tracks money in (invested), money out (withdrawn) and what
+   is sitting there now (balance). Profit = balance + withdrawn − invested,
+   so taking money out of a trading account doesn't look like a loss. */
 
-function InvestmentModal({ initial, mode = 'edit', onClose }) {
+const MOVE_LABEL = { start: 'Started', add: 'Added', withdraw: 'Withdrew', value: 'Balance updated' };
+
+function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
   const [name, setName] = useState(initial?.name || '');
   const [kind, setKind] = useState(initial?.kind || 'mutual-fund');
   const [invested, setInvested] = useState(mode === 'edit' && initial ? String(initial.invested ?? '') : '');
-  const [value, setValue] = useState(mode === 'edit' && initial?.current_value != null ? String(initial.current_value) : '');
-  const [date, setDate] = useState(initial?.date || ymd());
-  const [note, setNote] = useState(initial?.note || '');
+  const [value, setValue] = useState(
+    mode === 'value' ? String(currentValue(initial)) : mode === 'edit' && initial?.current_value != null ? String(initial.current_value) : '');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(mode === 'edit' ? initial?.date || ymd() : ymd());
+  const [note, setNote] = useState(mode === 'edit' ? initial?.note || '' : '');
   const [error, setError] = useState('');
+
+  const push = (type, amt) => [...(Array.isArray(initial?.history) ? initial.history : []), { type, amount: amt, date, note: note.trim() }];
 
   const save = e => {
     e?.preventDefault();
     if (mode === 'topup') {
-      const add = num(invested);
-      if (add <= 0) return setError('Enter how much you added.');
+      const a = num(amount);
+      if (a <= 0) return setError('Enter how much you added.');
       investments.update(initial.id, {
-        invested: num(initial.invested) + add,
-        current_value: currentValue(initial) + add,
+        invested: num(initial.invested) + a,
+        current_value: currentValue(initial) + a,
+        history: push('add', a),
       });
+      showToast?.('success', 'Added', `${fmt(a)} to ${initial.name}`);
+      return onClose();
+    }
+    if (mode === 'withdraw') {
+      const a = num(amount);
+      const bal = currentValue(initial);
+      if (a <= 0) return setError('Enter how much you withdrew.');
+      if (a > bal) return setError(`You only have ${fmt(bal)} in this right now.`);
+      investments.update(initial.id, {
+        withdrawn: num(initial.withdrawn) + a,
+        current_value: bal - a,
+        history: push('withdraw', a),
+      });
+      showToast?.('success', 'Withdrawal recorded', `${fmt(a)} from ${initial.name}`);
       return onClose();
     }
     if (mode === 'value') {
-      investments.update(initial.id, { current_value: value === '' ? null : num(value) });
+      if (value === '') return setError('Enter the balance shown in your app / account.');
+      investments.update(initial.id, { current_value: num(value), history: push('value', num(value)) });
       return onClose();
     }
     if (!name.trim()) return setError('Give it a name.');
     if (num(invested) <= 0) return setError('Enter the amount invested.');
     const row = { name: name.trim(), kind, invested: num(invested), current_value: value === '' ? null : num(value), date, note: note.trim() };
-    if (initial) investments.update(initial.id, row); else investments.add(row);
+    if (initial) investments.update(initial.id, row);
+    else investments.add({ ...row, withdrawn: 0, history: [{ type: 'start', amount: num(invested), date, note: '' }] });
     onClose();
   };
 
-  const title = mode === 'topup' ? `Add money to ${initial.name}` : mode === 'value' ? `Update value · ${initial.name}` : initial ? 'Edit investment' : 'New investment';
+  const title = mode === 'topup' ? `Add money · ${initial.name}`
+    : mode === 'withdraw' ? `Withdraw · ${initial.name}`
+    : mode === 'value' ? `Update balance · ${initial.name}`
+    : initial ? 'Edit investment' : 'New investment';
 
   return (
-    <Modal open onClose={onClose} title={title} width={mode === 'edit' ? 480 : 380}
-      footer={<Footer onCancel={onClose} onSave={save} />}>
+    <Modal open onClose={onClose} title={title} width={mode === 'edit' ? 480 : 400}
+      footer={<Footer onCancel={onClose} onSave={save} label={mode === 'withdraw' ? 'Record withdrawal' : 'Save'} />}>
       <form onSubmit={save} className="space-y-4">
-        {mode === 'topup' && <Field label="Amount added">{numInput(invested, setInvested, 'e.g. 2000')}</Field>}
-        {mode === 'value' && <Field label="Current value" hint="What it's worth today. Leave empty to use the invested amount.">{numInput(value, setValue, '0')}</Field>}
+        {(mode === 'topup' || mode === 'withdraw') && (
+          <>
+            <Field label={mode === 'topup' ? 'Amount added' : 'Amount withdrawn'}
+              hint={mode === 'withdraw' ? `Balance now: ${fmt(currentValue(initial))}` : undefined}>
+              {numInput(amount, setAmount, 'e.g. 2000')}
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} /></Field>
+              <Field label="Note"><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional" className={inputCls} /></Field>
+            </div>
+          </>
+        )}
+        {mode === 'value' && (
+          <Field label="Balance right now" hint="What your broker / app / bank shows today.">{numInput(value, setValue, '0')}</Field>
+        )}
         {mode === 'edit' && (
           <>
             <Field label="Name">
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Nifty 50 index SIP" className={inputCls} />
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Zerodha trading, Nifty 50 SIP" className={inputCls} />
             </Field>
             <Field label="Type">
               <Select className="w-full" value={kind} onChange={setKind} ariaLabel="Type"
                 options={INVESTMENT_KINDS.map(k => ({ value: k.id, label: k.label, color: k.color }))} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Invested">{numInput(invested, setInvested, '0')}</Field>
-              <Field label="Current value">{numInput(value, setValue, 'Optional')}</Field>
+              <Field label="Total put in">{numInput(invested, setInvested, '0')}</Field>
+              <Field label="Balance now">{numInput(value, setValue, 'Same as put in')}</Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Started on">
@@ -317,16 +399,18 @@ function InvestmentModal({ initial, mode = 'edit', onClose }) {
 export function InvestmentsTab({ fmt, showToast }) {
   const all = investments.useAll();
   const [modal, setModal] = useState(null); // { mode, initial }
+  const [open, setOpen] = useState(null);
 
   const invested = all.reduce((s, i) => s + num(i.invested), 0);
-  const value = all.reduce((s, i) => s + currentValue(i), 0);
-  const gain = value - invested;
+  const withdrawn = all.reduce((s, i) => s + num(i.withdrawn), 0);
+  const balance = all.reduce((s, i) => s + currentValue(i), 0);
+  const gain = balance + withdrawn - invested;
   const pct = invested ? gain / invested : 0;
 
   const allocation = useMemo(() => {
     const m = new Map();
     for (const i of all) m.set(i.kind, (m.get(i.kind) || 0) + currentValue(i));
-    return [...m.entries()].map(([id, total]) => ({ ...investmentKind(id), total })).sort((a, b) => b.total - a.total);
+    return [...m.entries()].map(([id, total]) => ({ ...investmentKind(id), total })).filter(a => a.total > 0).sort((a, b) => b.total - a.total);
   }, [all]);
 
   const remove = i => {
@@ -334,31 +418,47 @@ export function InvestmentsTab({ fmt, showToast }) {
     showToast?.('warning', 'Investment removed', i.name, 6000, { label: 'Undo', onClick: () => investments.restore(i) });
   };
 
+  const undoLast = i => {
+    const h = Array.isArray(i.history) ? i.history : [];
+    const last = h[h.length - 1];
+    if (!last || last.type === 'start') return;
+    const prev = { invested: i.invested, withdrawn: i.withdrawn, current_value: i.current_value, history: h };
+    const next = { history: h.slice(0, -1) };
+    if (last.type === 'add') { next.invested = num(i.invested) - num(last.amount); next.current_value = currentValue(i) - num(last.amount); }
+    if (last.type === 'withdraw') { next.withdrawn = num(i.withdrawn) - num(last.amount); next.current_value = currentValue(i) + num(last.amount); }
+    if (last.type === 'value') {
+      const before = [...h.slice(0, -1)].reverse().find(x => x.type === 'value');
+      next.current_value = before ? num(before.amount) : null;
+    }
+    investments.update(i.id, next);
+    showToast?.('success', 'Undone', `${MOVE_LABEL[last.type]} ${fmt(last.amount)}`, 6000,
+      { label: 'Redo', onClick: () => investments.update(i.id, prev) });
+  };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Total invested" value={fmt(invested)} hint={`${all.length} holding${all.length === 1 ? '' : 's'}`} />
-        <Stat label="Current value" value={fmt(value)} />
-        <Stat label="Gain / loss" value={fmt(gain, { sign: gain !== 0 })} tone={gain > 0 ? 'good' : gain < 0 ? 'bad' : undefined}
-          hint={invested ? `${pct >= 0 ? '+' : ''}${(pct * 100).toFixed(1)}% overall` : '—'} />
-        <Stat label="Largest" value={allocation[0] ? `${Math.round((allocation[0].total / (value || 1)) * 100)}%` : '—'}
-          hint={allocation[0]?.label || 'No holdings yet'} />
+        <Stat label="Total put in" value={fmt(invested)} hint={`${all.length} holding${all.length === 1 ? '' : 's'}`} />
+        <Stat label="Withdrawn" value={fmt(withdrawn)} hint="Taken out so far" />
+        <Stat label="Balance now" value={fmt(balance)} hint="What's in there today" />
+        <Stat label="Profit / loss" value={fmt(gain, { sign: gain !== 0 })} tone={gain > 0 ? 'good' : gain < 0 ? 'bad' : undefined}
+          hint={invested ? `${pct >= 0 ? '+' : ''}${(pct * 100).toFixed(1)}% · balance + withdrawn − put in` : '—'} />
       </div>
 
       {allocation.length > 0 && (
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[13px] font-medium text-slate-200">Allocation</span>
-            <span className="text-[12px] text-slate-500">By current value</span>
+            <span className="text-[13px] font-medium text-slate-200">Where it sits</span>
+            <span className="text-[12px] text-slate-500">By balance</span>
           </div>
           <div className="flex h-2 rounded-full overflow-hidden gap-[2px] mb-3">
-            {allocation.map(a => <div key={a.id} style={{ flex: a.total || 0.0001, background: a.color }} title={`${a.label}: ${fmt(a.total)}`} />)}
+            {allocation.map(a => <div key={a.id} style={{ flex: a.total, background: a.color }} title={`${a.label}: ${fmt(a.total)}`} />)}
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1.5">
             {allocation.map(a => (
               <span key={a.id} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-400">
                 <span className="w-2 h-2 rounded-sm" style={{ background: a.color }} />
-                {a.label} <span className="text-slate-500 tabular-nums">{Math.round((a.total / (value || 1)) * 100)}%</span>
+                {a.label} <span className="text-slate-500 tabular-nums">{Math.round((a.total / (balance || 1)) * 100)}%</span>
               </span>
             ))}
           </div>
@@ -370,51 +470,85 @@ export function InvestmentsTab({ fmt, showToast }) {
           action={<button onClick={() => setModal({ mode: 'edit', initial: null })} className={btnPrimary}><Plus size={13} /> Add investment</button>} />
         {all.length === 0 ? (
           <Empty icon={PiggyBank} title="Nothing tracked yet"
-            body="Record SIPs, stocks, FDs, gold or crypto with what you put in. Update the current value whenever you check." />
+            body="Add a trading account, SIP, stocks, FD, gold or crypto. Record money you add or withdraw, and update the balance whenever you check." />
         ) : (
           <div className="pb-2">
-            <div className="hidden sm:flex items-center gap-3 px-4 h-8 text-[11.5px] text-slate-500 border-t border-white/[0.04]">
+            <div className="hidden md:flex items-center gap-3 px-4 h-8 text-[11.5px] text-slate-500 border-t border-white/[0.04]">
               <span className="flex-1">Name</span>
-              <span className="w-28 text-right">Invested</span>
-              <span className="w-28 text-right">Value</span>
-              <span className="w-20 text-right">Return</span>
-              <span className="w-[124px]" />
+              <span className="w-24 text-right">Put in</span>
+              <span className="w-24 text-right">Withdrawn</span>
+              <span className="w-24 text-right">Balance</span>
+              <span className="w-24 text-right">Profit</span>
+              <span className="w-[150px]" />
             </div>
             {all.map(i => {
               const k = investmentKind(i.kind);
-              const v = currentValue(i);
-              const g = v - num(i.invested);
+              const bal = currentValue(i);
+              const wd = num(i.withdrawn);
+              const g = bal + wd - num(i.invested);
               const r = num(i.invested) ? g / num(i.invested) : 0;
+              const history = Array.isArray(i.history) ? i.history : [];
+              const expanded = open === i.id;
               return (
-                <div key={i.id} className="group flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 px-4 py-2.5 border-t border-white/[0.04] hover:bg-white/[0.015] transition-colors">
-                  <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-                    <p className="text-[13.5px] text-slate-100 truncate">{i.name}</p>
-                    <p className="text-[12px] text-slate-500 truncate inline-flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: k.color }} />{k.label}
-                      {i.date && <span>· since {new Date(i.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>}
-                    </p>
+                <div key={i.id} className="border-t border-white/[0.04]">
+                  <div className="group flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 hover:bg-white/[0.015] transition-colors">
+                    <button onClick={() => setOpen(expanded ? null : i.id)} className="min-w-0 flex-1 basis-full md:basis-auto text-left cursor-pointer">
+                      <p className="text-[13.5px] text-slate-100 truncate flex items-center gap-1.5">
+                        {i.name}
+                        <ChevronDown size={12} className="text-slate-600 transition-transform" style={{ transform: expanded ? 'rotate(180deg)' : 'none' }} />
+                      </p>
+                      <p className="text-[12px] text-slate-500 truncate inline-flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: k.color }} />{k.label}
+                        {i.date && <span>· since {new Date(i.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>}
+                      </p>
+                    </button>
+                    <div className="grid grid-cols-4 md:contents gap-2 w-full md:w-auto text-[13px] tabular-nums">
+                      <span className="md:w-24 md:text-right text-slate-400"><span className="md:hidden block text-[11px] text-slate-600">Put in</span>{fmt(i.invested)}</span>
+                      <span className="md:w-24 md:text-right text-slate-400"><span className="md:hidden block text-[11px] text-slate-600">Withdrawn</span>{wd ? fmt(wd) : '—'}</span>
+                      <span className="md:w-24 md:text-right text-slate-100"><span className="md:hidden block text-[11px] text-slate-600">Balance</span>{fmt(bal)}</span>
+                      <span className={`md:w-24 md:text-right ${g > 0 ? 'text-emerald-400' : g < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                        <span className="md:hidden block text-[11px] text-slate-600">Profit</span>
+                        {fmt(g, { sign: g !== 0 })} <span className="text-[11px] opacity-80">{(r * 100).toFixed(1)}%</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center ml-auto md:ml-0 md:w-[150px] justify-end">
+                      <button onClick={() => setModal({ mode: 'topup', initial: i })} className="icon-btn" title="Add money"><Plus size={13} /></button>
+                      <button onClick={() => setModal({ mode: 'withdraw', initial: i })} className="icon-btn" title="Withdraw" disabled={bal <= 0}><ArrowUpRight size={13} /></button>
+                      <button onClick={() => setModal({ mode: 'value', initial: i })} className="icon-btn" title="Update balance"><TrendingUp size={13} /></button>
+                      <button onClick={() => setModal({ mode: 'edit', initial: i })} className="icon-btn" title="Edit"><Pencil size={13} /></button>
+                      <button onClick={() => remove(i)} className="icon-btn hover:!text-rose-400" title="Delete"><Trash2 size={13} /></button>
+                    </div>
                   </div>
-                  <span className="sm:w-28 sm:text-right text-[13px] text-slate-400 tabular-nums">{fmt(i.invested)}</span>
-                  <span className="sm:w-28 sm:text-right text-[13px] text-slate-100 tabular-nums">{fmt(v)}</span>
-                  <span className={`sm:w-20 sm:text-right text-[12.5px] tabular-nums inline-flex items-center sm:justify-end gap-1 ${g > 0 ? 'text-emerald-400' : g < 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-                    {g > 0 ? <TrendingUp size={12} /> : g < 0 ? <TrendingDown size={12} /> : null}
-                    {(r * 100).toFixed(1)}%
-                  </span>
-                  <div className="flex items-center ml-auto sm:ml-0 sm:w-[124px] justify-end">
-                    <button onClick={() => setModal({ mode: 'topup', initial: i })} className="icon-btn" title="Add money"><Plus size={13} /></button>
-                    <button onClick={() => setModal({ mode: 'value', initial: i })} className="icon-btn" title="Update current value"><TrendingUp size={13} /></button>
-                    <button onClick={() => setModal({ mode: 'edit', initial: i })} className="icon-btn" title="Edit"><Pencil size={13} /></button>
-                    <button onClick={() => remove(i)} className="icon-btn hover:!text-rose-400" title="Delete"><Trash2 size={13} /></button>
-                  </div>
+                  {expanded && (
+                    <div className="px-4 pb-3 fade-up">
+                      <div className="rounded-lg border border-white/[0.05] bg-white/[0.015] divide-y divide-white/[0.04]">
+                        {history.length === 0 && <p className="px-3 py-2.5 text-[12.5px] text-slate-500">No movements recorded yet.</p>}
+                        {[...history].reverse().map((h, idx) => (
+                          <div key={idx} className="flex items-center gap-3 px-3 h-9 text-[12.5px]">
+                            <span className="text-slate-500 tabular-nums w-20 shrink-0">
+                              {h.date ? new Date(h.date + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' }) : ''}
+                            </span>
+                            <span className="text-slate-300 truncate flex-1">{MOVE_LABEL[h.type] || h.type}{h.note ? ` · ${h.note}` : ''}</span>
+                            <span className={`tabular-nums ${h.type === 'withdraw' ? 'text-amber-400' : h.type === 'value' ? 'text-slate-300' : 'text-emerald-400'}`}>
+                              {h.type === 'withdraw' ? '−' : h.type === 'value' ? '= ' : '+'}{fmt(h.amount)}
+                            </span>
+                            {idx === 0 && h.type !== 'start' && (
+                              <button onClick={() => undoLast(i)} className="text-[11.5px] text-slate-500 hover:text-slate-100 cursor-pointer">Undo</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
       </Card>
-      <p className="text-[12px] text-slate-600 text-center">A personal record, not advice. Values update only when you enter them.</p>
+      <p className="text-[12px] text-slate-600 text-center">A personal record, not advice. Balances update only when you enter them.</p>
 
-      {modal && <InvestmentModal {...modal} onClose={() => setModal(null)} />}
+      {modal && <InvestmentModal {...modal} fmt={fmt} showToast={showToast} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -862,6 +996,15 @@ export function EmiTab({ fmt, showToast }) {
       { label: 'Undo', onClick: () => { transactions.remove(tx.id); emis.update(e.id, { payments: e.payments || [], closed: e.closed }); } });
   };
 
+  const undoPaid = (e, m) => {
+    const rows = transactions.getAll().filter(t => t.emi_id === e.id && (t.date || '').startsWith(m));
+    const before = { payments: e.payments || [], closed: e.closed };
+    rows.forEach(t => transactions.remove(t.id));
+    emis.update(e.id, { payments: (e.payments || []).filter(x => x !== m), closed: false });
+    showToast?.('warning', `${monthLabel(m, { month: 'short' })} marked unpaid`, e.name, 6000,
+      { label: 'Undo', onClick: () => { rows.forEach(t => transactions.restore(t)); emis.update(e.id, before); } });
+  };
+
   const remove = e => {
     emis.remove(e.id);
     showToast?.('warning', 'EMI deleted', e.name, 6000, { label: 'Undo', onClick: () => emis.restore(e) });
@@ -920,14 +1063,12 @@ export function EmiTab({ fmt, showToast }) {
                 </div>
                 {!st.done ? (
                   <>
-                    <span className="text-[12px] shrink-0 w-32 sm:text-right">
-                      {st.paidThisMonth
-                        ? <span className="text-emerald-400 inline-flex items-center gap-1"><CheckCircle2 size={12} /> Paid this month</span>
-                        : <span className="text-amber-400">Due this month</span>}
-                    </span>
-                    <button onClick={() => markPaid(e, st)} className="btn-ghost h-7 px-2.5 rounded-md text-[12px] cursor-pointer shrink-0">
-                      Mark {monthLabel(st.nextMonth, { month: 'short' })} paid
-                    </button>
+                    {!st.paidThisMonth && <span className="text-[12px] text-amber-400 shrink-0">Due this month</span>}
+                    <MonthToggles
+                      months={[...new Set([thisMonth, ...(e.payments || []).filter(m => m >= thisMonth), st.nextMonth])].sort()}
+                      isDone={m => (e.payments || []).includes(m)}
+                      doneLabel="paid" todoLabel="paid"
+                      onDo={() => markPaid(e, st)} onUndo={m => undoPaid(e, m)} />
                   </>
                 ) : (
                   <button onClick={() => emis.update(e.id, { closed: false })} className="btn-ghost h-7 px-2.5 rounded-md text-[12px] cursor-pointer shrink-0">Reopen</button>
