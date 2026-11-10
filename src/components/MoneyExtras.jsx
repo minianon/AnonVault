@@ -64,7 +64,7 @@ function MonthToggles({ months, isDone, onDo, onUndo, doneLabel, todoLabel }) {
 
 /* A stacked bar with a legend: how a total splits across items. Top 4 +
    "Other", in the validated chart colours (see CHART_SLOTS in ui.jsx). */
-function Breakdown({ title, note, items, fmt }) {
+export function Breakdown({ title, note, items, fmt }) {
   const list = topParts(items);
   const total = list.reduce((t, x) => t + x.value, 0);
   if (!list.length) return null;

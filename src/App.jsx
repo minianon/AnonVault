@@ -20,10 +20,6 @@ import {
   addApplication, 
   updateApplication, 
   deleteApplication,
-  fetchIdeas,
-  addIdea,
-  updateIdea,
-  deleteIdea,
   fetchProjectIdeas
 } from './services/supabase';
 import { getTasksForDateSync, loadAllTasks, addTask } from './services/tasks';
@@ -31,6 +27,7 @@ import { syncNotes } from './services/journal';
 import { transactions as moneyStore, incomeSources, investments, loans, incomeIdeas, emis, summarizeMonth, monthKey, formatMoney } from './services/money';
 import { companies } from './services/work';
 import { board, addItem as addBoardItem } from './services/board';
+import { ideas as ideaStore, stepsIn } from './services/ideas';
 import { quotes as quoteStore } from './services/quotes';
 import { sessions as focusStore } from './services/focus';
 
@@ -493,7 +490,7 @@ function AppInner() {
 
   // Data states
   const [applications, setApplications] = useState([]);
-  const [ideas, setIdeas] = useState([]);
+  const ideas = ideaStore.useAll();
   const [projectIdeas, setProjectIdeas] = useState([]);
   const [projectIdeasCount, setProjectIdeasCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -510,15 +507,14 @@ function AppInner() {
     setLoading(true);
     setErrorMsg('');
     try {
-      const [appsData, ideasData] = await Promise.all([
+      const [appsData] = await Promise.all([
         fetchApplications().catch(err => {
           console.error('Error fetching applications:', err);
           return [];
         }),
-        fetchIdeas().catch(err => {
-          console.error('Error fetching ideas:', err);
-          return [];
-        }),
+        // Ideas are local-first now; this pulls the Supabase copy (and any
+        // ideas saved there before the switch).
+        ideaStore.sync(),
         // Eagerly populate the tasks cache so the sidebar count is correct immediately
         loadAllTasks().catch(err => {
           console.warn('Could not pre-fetch tasks for sidebar count:', err);
@@ -540,7 +536,6 @@ function AppInner() {
       ]);
 
       setApplications(appsData);
-      setIdeas(ideasData);
 
       // Cache just what the unlock briefing needs — it runs before this
       // fetch has had a chance to happen.
@@ -645,42 +640,33 @@ function AppInner() {
   // --- Idea Handlers ---
 
   const handleAddIdea = async (newIdea) => {
-    try {
-      const added = await addIdea(newIdea);
-      setIdeas(prev => [added, ...prev]);
-      showToast('success', 'Idea Captured', `"${added.title}" has been saved to the vault.`);
-      return added;
-    } catch (err) {
-      console.error('Failed to add idea:', err);
-      showToast('error', 'Capture Failed', 'Could not save idea. Check your Supabase table.');
-    }
+    const added = ideaStore.add({
+      title: (newIdea.title || '').trim(),
+      content: newIdea.content || '',
+      image_url: newIdea.image_url || '',
+      images: newIdea.images || [],
+      links: newIdea.links || [],
+      tags: newIdea.tags || [],
+      status: newIdea.status || 'new',
+    });
+    showToast('success', 'Idea saved', `"${added.title}"`);
+    return added;
   };
 
   const handleUpdateIdea = async (id, updates) => {
-    try {
-      const updated = await updateIdea(id, updates);
-      setIdeas(prev => prev.map(idea => idea.id === id ? updated : idea));
-      showToast('success', 'Idea Updated', `"${updated.title}" has been saved.`);
-    } catch (err) {
-      console.error('Failed to update idea:', err);
-      showToast('error', 'Update Failed', 'Could not update the idea.');
-    }
+    ideaStore.update(id, updates);
+    const updated = ideaStore.getAll().find(i => i.id === id);
+    showToast('success', 'Idea updated', `"${updated?.title || ''}"`);
+    return updated;
   };
 
+  // Stage changes are small and frequent, so no toast.
+  const handleSetIdeaStage = (id, status) => ideaStore.update(id, { status });
+
   const handleDeleteIdea = async (id) => {
-    try {
-      const target = ideas.find(i => i.id === id);
-      await deleteIdea(id);
-      setIdeas(prev => prev.filter(idea => idea.id !== id));
-      withUndo('Idea Deleted', target?.title || 'Idea', () => handleAddIdea({
-        title: target?.title, content: target?.content || '',
-        images: target?.images || [], links: target?.links || [],
-        tags: target?.tags || [],
-      }));
-    } catch (err) {
-      console.error('Failed to delete idea:', err);
-      showToast('error', 'Delete Failed', 'Could not remove the idea.');
-    }
+    const target = ideaStore.getAll().find(i => i.id === id);
+    ideaStore.remove(id);
+    if (target) withUndo('Idea deleted', target.title || 'Idea', () => ideaStore.restore(target));
   };
 
   // --- Project Ideas Handlers ---
@@ -696,8 +682,15 @@ function AppInner() {
   // Returns whether the concept was actually created. The vault uses that to
   // decide whether to clear the idea out of its active list — a failed
   // promotion must not make the idea disappear.
+  // "Start building": the idea becomes a card, and every "- step" line in
+  // its notes becomes its own card labelled with the idea, so the first
+  // steps are on the board ready to drag into In progress.
   const handlePromoteToProject = async idea => {
     if (!idea) return false;
+    const steps = stepsIn(idea.content);
+    // New cards go to the top of To do, so add the steps (last first) before
+    // the idea's own card: it ends up on top with its steps under it in order.
+    [...steps].reverse().forEach(step => addBoardItem({ title: step, label: idea.title, status: 'todo' }));
     const item = addBoardItem({
       title: idea.title,
       description: idea.content || '',
@@ -706,8 +699,10 @@ function AppInner() {
       promoted_from: idea.id,
     });
     if (!item) return false;
+    ideaStore.update(idea.id, { status: 'ready' });
     setActiveTab('board');
-    showToast('success', 'Moved to Board', `"${idea.title}" is now a card in To do.`);
+    showToast('success', 'Started building',
+      steps.length ? `"${idea.title}" and ${steps.length} step${steps.length === 1 ? '' : 's'} are now in To do.` : `"${idea.title}" is now a card in To do.`);
     return true;
   };
 
@@ -859,6 +854,33 @@ function AppInner() {
     };
   }, []);
 
+  // Once a week, nudge toward Review: Sunday evening shows this week,
+  // Monday shows last week. At most once per week, per device.
+  useEffect(() => {
+    if (!isAuthorized) return;
+    const now = new Date();
+    const dow = now.getDay();
+    const sunday = dow === 0 && now.getHours() >= 17;
+    const monday = dow === 1;
+    if (!sunday && !monday) return;
+    const monday0 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((dow + 6) % 7) - (monday ? 7 : 0));
+    const key = 'anonvault_review_nudge';
+    const week = monday0.toISOString().slice(0, 10);
+    try { if (localStorage.getItem(key) === week) return; } catch { return; }
+    const t = setTimeout(() => {
+      try { localStorage.setItem(key, week); } catch { /* fine */ }
+      showToast('info', monday ? 'Last week, in one page' : 'Your week, in one page',
+        'Hours, money, tasks and what slipped.', 12000, {
+          label: 'Open Review',
+          onClick: () => {
+            setActiveTab('review');
+            setTimeout(() => window.dispatchEvent(new CustomEvent('anonvault:review-period', { detail: { kind: 'week', offset: monday ? -1 : 0 } })), 60);
+          },
+        });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [isAuthorized, showToast]);
+
   const handleQuickAddIdea = async title => {
     if (!title) return;
     await handleAddIdea({ title, content: '', images: [], links: [], tags: [] });
@@ -986,6 +1008,7 @@ function AppInner() {
                   showToast={showToast}
                   onMenuToggle={menu}
                   onPromoteToProject={handlePromoteToProject}
+                  onSetStage={handleSetIdeaStage}
                   promotedMap={promotedMap}
                   onOpenConcept={() => setActiveTab('board')}
                   initialSelectedIdeaId={initIdeaId}
@@ -1014,7 +1037,7 @@ function AppInner() {
               <div {...panel('review')}>
                 <ReviewView
                   applications={applications}
-                  projectIdeas={projectIdeas}
+                  tasksVersion={tasksVersion}
                   onLock={handleLock}
                   onMenuToggle={menu}
                   setActiveTab={setActiveTab}

@@ -4,10 +4,11 @@ import {
   Plus, Search, Trash2, Pencil, X, AlertTriangle, Lightbulb, ExternalLink, Globe,
   ChevronLeft, ChevronRight, GripVertical, Maximize2, Star, Loader2, Tag, Clock,
   Rocket, Archive, ArchiveRestore, CheckSquare, Square, Pin, PinOff, Link2, Images,
-  ImagePlus, Hash, Image as ImageIcon,
+  ImagePlus, Hash, Image as ImageIcon, Sparkles,
 } from 'lucide-react';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { useArchive } from '../utils/useArchive';
+import { IDEA_STAGES, stageOf, stepsIn } from '../services/ideas';
 import { useListNav } from '../utils/useListNav';
 import BulkBar from './BulkBar';
 import { PageHeader, Empty, Card, Modal, Select } from './ui';
@@ -343,7 +344,7 @@ function QuickCapture({ inputRef, onCapture, onMore, suggestions, defaultTag }) 
 ═══════════════════════════════════════════════════════ */
 export default function IdeaVaultView({
   ideas, onAdd, onUpdate, onDelete, loading, onLock, showToast, onMenuToggle, initialSelectedIdeaId, onClearInitialSelectedIdea,
-  onPromoteToProject, promotedMap = {}, onOpenConcept, headerExtra
+  onPromoteToProject, promotedMap = {}, onOpenConcept, headerExtra, onSetStage
 }) {
   const [searchTerm, setSearchTerm]     = useState('');
   const [selectedTag, setSelectedTag]   = useState('');
@@ -357,6 +358,8 @@ export default function IdeaVaultView({
     } catch { return []; }
   });
   const [formStarred, setFormStarred] = useState(false);
+  const [formStatus, setFormStatus] = useState('new');
+  const [stage, setStage] = useState(''); // '' = every stage
 
   const togglePin = (id) => {
     setPinnedIds(prev => {
@@ -439,6 +442,7 @@ export default function IdeaVaultView({
     setUploading(0); setUploadError('');
     setEditingIdea(null);
     setFormStarred(false);
+    setFormStatus('new');
   };
 
   const { isArchived, toggleArchived, archivedIds } = useArchive('anonvault_ideas_archived');
@@ -485,6 +489,7 @@ export default function IdeaVaultView({
     setFormTags(idea.tags || []);
     setTagInputVal('');
     setFormStarred(pinnedIds.includes(idea.id));
+    setFormStatus(stageOf(idea).id);
     setFormImages(ideaImages(idea));
     setFormLinks(editorLinks(idea.links));
     setUploading(0); setUploadError('');
@@ -613,6 +618,7 @@ export default function IdeaVaultView({
       images:    validImages,
       links:     validLinks,
       tags:      finalTags,
+      status:    formStatus,
     };
 
     if (editingIdea) {
@@ -682,6 +688,7 @@ export default function IdeaVaultView({
         (idea.title  || '').toLowerCase().includes(q) ||
         (idea.content || '').toLowerCase().includes(q);
       const matchesTag = !selectedTag || (idea.tags && idea.tags.includes(selectedTag));
+      if (stage && stageOf(idea).id !== stage) return false;
       // Archived rows are hidden unless explicitly asked for; the archive view
       // shows only them, so nothing is ever invisible in both modes.
       if (showArchived !== archivedIds.includes(idea.id)) return false;
@@ -694,7 +701,11 @@ export default function IdeaVaultView({
   const regularIdeas = processedIdeas.filter(i => !pinnedIds.includes(i.id));
   // Display order, not data order — j/k must follow what is on screen.
   const navIds = [...pinnedIdeas, ...regularIdeas].map(i => i.id);
-  const isFiltering = !!(searchTerm || selectedTag);
+  const isFiltering = !!(searchTerm || selectedTag || stage);
+  const stageCounts = IDEA_STAGES.reduce((m, st) => {
+    m[st.id] = (ideas || []).filter(i => i && !archivedIds.includes(i.id) && stageOf(i).id === st.id).length;
+    return m;
+  }, {});
 
   const nav = useListNav({
     ids: navIds,
@@ -814,6 +825,26 @@ export default function IdeaVaultView({
             />
           )}
 
+          {/* stages: where each idea is on its way to being built */}
+          {!showArchived && (
+            <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Stage">
+              {IDEA_STAGES.map(st => {
+                const on = stage === st.id;
+                return (
+                  <button key={st.id} role="tab" aria-selected={on} onClick={() => setStage(v => (v === st.id ? '' : st.id))}
+                    className={`panel text-left px-3.5 py-2.5 cursor-pointer transition-colors ${on ? '!border-white/[0.18] !bg-white/[0.05]' : 'panel-hover'}`}>
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: st.color }} />
+                      <span className="text-[13px] text-slate-200 font-medium">{st.label}</span>
+                      <span className="ml-auto text-[13px] tabular-nums text-slate-400">{stageCounts[st.id]}</span>
+                    </span>
+                    <span className="hidden sm:block text-[11.5px] text-slate-500 mt-0.5 pl-4">{st.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* toolbar */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[180px] sm:max-w-xs">
@@ -893,7 +924,7 @@ export default function IdeaVaultView({
                   Back to active ideas
                 </button>
               ) : isFiltering ? (
-                <button onClick={() => { setSearchTerm(''); setSelectedTag(''); }}
+                <button onClick={() => { setSearchTerm(''); setSelectedTag(''); setStage(''); }}
                   className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">
                   Clear filters
                 </button>
@@ -977,6 +1008,16 @@ export default function IdeaVaultView({
         <form onSubmit={handleSubmit} onPaste={handleFormPaste}
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit(e); }}>
           <EditorLayout aside={<>
+            <PropRow icon={Sparkles} label="Stage">
+              <div className="flex flex-wrap gap-1">
+                {IDEA_STAGES.map(st => (
+                  <button key={st.id} type="button" onClick={() => setFormStatus(st.id)} aria-pressed={formStatus === st.id}
+                    className={`${chipCls(formStatus === st.id)} !h-7 gap-1.5`}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: st.color }} />{st.label}
+                  </button>
+                ))}
+              </div>
+            </PropRow>
             <PropRow icon={Tag} label="Tags" top>
               <TagEditor tags={formTags} input={tagInputVal} setInput={setTagInputVal}
                 onAdd={addFormTag} onRemove={removeFormTag} suggestions={allTags} />
@@ -998,9 +1039,9 @@ export default function IdeaVaultView({
                   </button>
                 ) : (
                   <button type="button" onClick={handleSendFromEditor} disabled={uploading > 0}
-                    title="Save, then turn this idea into a board card"
+                    title="Save, then turn this idea (and any - step lines in the notes) into Board cards"
                     className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[12.5px] text-slate-300 border border-white/[0.1] hover:bg-white/[0.05] hover:text-slate-100 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    <Rocket size={12} /> Send to board
+                    <Rocket size={12} /> Start building{stepsIn(formContent).length ? ` · ${stepsIn(formContent).length} steps` : ''}
                   </button>
                 )}
               </PropRow>
@@ -1013,7 +1054,7 @@ export default function IdeaVaultView({
           </>}>
             <TitleInput value={formTitle} onChange={setFormTitle} placeholder="Idea title" />
             <DescriptionInput value={formContent} onChange={setFormContent}
-              placeholder="What is it, who is it for, first step…" />
+              placeholder={'What is it, who is it for…\n\nSteps become Board cards when you start building:\n- First step\n- Second step'} />
             <LinksEditor links={formLinks} onChange={setFormLinks} />
             <IdeaImagesEditor images={formImages} uploading={uploading} error={uploadError}
               onAddFiles={addImageFiles} onRemove={removeImageRow} onCaption={changeImageCaption}
@@ -1050,6 +1091,7 @@ export default function IdeaVaultView({
           archived={isArchived(selectedIdea.id)}
           onToggleArchive={() => { toggleArchived(selectedIdea.id); setSelectedIdea(null); }}
           onDelete={() => { const id = selectedIdea.id; setSelectedIdea(null); setDeleteConfirmId(id); }}
+          onSetStage={st => { onSetStage?.(selectedIdea.id, st); setSelectedIdea(i => (i ? { ...i, status: st } : i)); }}
         />
       )}
     </div>
@@ -1071,7 +1113,7 @@ function SectionHeading({ icon: Icon, label, count }) {
    right (stacked under the content on phones). */
 function IdeaDetailModal({
   idea, onClose, onEdit, promotedTo, onOpenConcept,
-  isPinned, onTogglePin, onPromote, archived, onToggleArchive, onDelete,
+  isPinned, onTogglePin, onPromote, archived, onToggleArchive, onDelete, onSetStage,
 }) {
   const images = ideaImages(idea);
   const links  = (idea.links || []).filter(l => l && (l.url || l.label));
@@ -1110,6 +1152,19 @@ function IdeaDetailModal({
             {isPinned ? 'Pinned to top' : 'Pin to top'}
           </button>
         </PropRow>
+        <PropRow icon={Sparkles} label="Stage">
+          <div className="flex flex-wrap gap-1">
+            {IDEA_STAGES.map(st => {
+              const on = stageOf(idea).id === st.id;
+              return (
+                <button key={st.id} type="button" onClick={() => onSetStage?.(st.id)} aria-pressed={on}
+                  className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-[12px] border cursor-pointer transition-colors ${on ? 'bg-white/[0.08] border-white/[0.16] text-slate-100' : 'border-white/[0.07] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: st.color }} />{st.label}
+                </button>
+              );
+            })}
+          </div>
+        </PropRow>
         <PropRow icon={Rocket} label="Board">
           {promotedTo ? (
             <button onClick={() => { onClose(); onOpenConcept?.(promotedTo); }} title="Open the board card this became"
@@ -1126,8 +1181,9 @@ function IdeaDetailModal({
 
         <div className="pt-3 mt-2 border-t border-white/[0.06] space-y-0.5">
           {!promotedTo && (
-            <button type="button" onClick={onPromote} className={sideBtn}>
-              <Rocket size={13} className="text-slate-500" /> Send to board
+            <button type="button" onClick={onPromote} className={sideBtn}
+              title="Turn this idea, and any - step lines in its notes, into Board cards">
+              <Rocket size={13} className="text-slate-500" /> Start building{stepsIn(idea.content).length ? ` · ${stepsIn(idea.content).length} steps` : ''}
             </button>
           )}
           <button type="button" onClick={onToggleArchive} className={sideBtn}>
@@ -1255,8 +1311,13 @@ function IdeaCard({ idea, onEdit, onDelete, onSelectTag, onViewDetails, canDrag,
         <p className="mt-1.5 text-[13px] leading-relaxed text-slate-400 line-clamp-4 break-words whitespace-pre-line">{idea.content}</p>
       )}
 
-      {(isPromoted || tags.length > 0) && (
+      {(isPromoted || tags.length > 0 || stageOf(idea).id !== 'new') && (
         <div className="flex flex-wrap items-center gap-1 mt-3" onClick={stop}>
+          {!isPromoted && stageOf(idea).id !== 'new' && (
+            <span className="inline-flex items-center gap-1 h-5 px-1.5 text-[11px] rounded-md border border-white/[0.08] text-slate-300">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: stageOf(idea).color }} />{stageOf(idea).label}
+            </span>
+          )}
           {isPromoted && (
             <button onClick={() => onOpenConcept?.(promotedTo)} title="Open the board card this became"
               className="inline-flex items-center gap-1 h-5 px-1.5 text-[11px] rounded-md cursor-pointer transition-colors text-accent-300 bg-accent-500/10 border border-accent-500/25 hover:bg-accent-500/15">
@@ -1304,8 +1365,8 @@ function IdeaCard({ idea, onEdit, onDelete, onSelectTag, onViewDetails, canDrag,
           <button
             onClick={() => (isPromoted ? onOpenConcept?.(promotedTo) : onPromote?.(idea))}
             className={`${actionBtn} ${isPromoted ? '!text-accent-300' : ''}`}
-            title={isPromoted ? 'Open the board card this became' : 'Send to board'}
-            aria-label={isPromoted ? 'Open board card' : 'Send to board'}>
+            title={isPromoted ? 'Open the board card this became' : 'Start building: turn into Board cards'}
+            aria-label={isPromoted ? 'Open board card' : 'Start building'}>
             <Rocket size={12} />
           </button>
           <button onClick={() => onToggleSelect?.(idea.id)} className={`${actionBtn} ${selected ? '!text-slate-100 bg-white/[0.09]' : ''}`}

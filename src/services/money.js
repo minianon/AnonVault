@@ -304,3 +304,60 @@ export function receiveIncome(src, month, amount) {
   });
   return { undo: () => transactions.remove(tx.id) };
 }
+
+/* ── repeat payments ───────────────────────────────────────
+   Expenses with the same note and roughly the same amount that keep coming
+   back on a steady rhythm: subscriptions, rent, a weekly class. EMIs are
+   left out (they have their own tab). Pure function of the transactions.
+
+   → [{ key, name, amount, every: 'week'|'month'|days, perMonth, count,
+        last, next, late, category }] largest monthly cost first */
+const DAY_MS = 86400000;
+const median = xs => { const a = [...xs].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+export const repeatKey = note => String(note || '').toLowerCase().replace(/[0-9₹$€£.,:#/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+export function detectRepeats(list, today = new Date()) {
+  const groups = new Map();
+  for (const t of list) {
+    if (t.type === 'income' || t.emi_id || t.category === 'emi' || !t.date) continue;
+    const key = repeatKey(t.note);
+    if (key.length < 3) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const out = [];
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  for (const [key, rows] of groups) {
+    if (rows.length < 2) continue;
+    const amt = median(rows.map(r => Number(r.amount) || 0));
+    if (!amt) continue;
+    // Same thing, same-ish price: ±15% of the usual amount.
+    const hits = rows.filter(r => Math.abs((Number(r.amount) || 0) - amt) <= amt * 0.15)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (hits.length < 2) continue;
+    const times = hits.map(r => new Date(r.date + 'T00:00:00').getTime());
+    const gaps = times.slice(1).map((t, i) => Math.round((t - times[i]) / DAY_MS)).filter(g => g > 0);
+    if (!gaps.length) continue;
+    const gap = median(gaps);
+    let every = null;
+    if (gap >= 25 && gap <= 35) every = 'month';
+    else if (gap >= 6 && gap <= 8 && hits.length >= 3) every = 'week';
+    else if (gap >= 12 && gap <= 16 && hits.length >= 3) every = 14;
+    if (!every) continue;
+    // A rhythm, not a coincidence: most gaps close to the typical one.
+    const steady = gaps.filter(g => Math.abs(g - gap) <= Math.max(3, gap * 0.2)).length >= Math.ceil(gaps.length * 0.6);
+    if (!steady) continue;
+    const step = every === 'month' ? 30 : every === 'week' ? 7 : every;
+    const last = times[times.length - 1];
+    const next = last + step * DAY_MS;
+    // Stopped? Two missed cycles and it's probably cancelled — don't list it.
+    if (t0 - last > step * 2.5 * DAY_MS) continue;
+    const perMonth = every === 'month' ? amt : amt * (30.44 / step);
+    out.push({
+      key, name: hits[hits.length - 1].note.trim(), amount: amt, every, perMonth, count: hits.length,
+      last: hits[hits.length - 1].date, next: new Date(next), late: t0 > next + 4 * DAY_MS,
+      category: hits[hits.length - 1].category,
+    });
+  }
+  return out.sort((a, b) => b.perMonth - a.perMonth);
+}

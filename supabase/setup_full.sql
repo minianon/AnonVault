@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS public.ideas (
     tags TEXT[] DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+-- Idea stage: new / exploring / ready
+ALTER TABLE public.ideas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'new';
 
 -- Daily checklist
 CREATE TABLE IF NOT EXISTS public.tasks (

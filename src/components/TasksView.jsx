@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Plus, Trash2, Edit3, X, ChevronDown, Check, RotateCcw,
   ChevronLeft, ChevronRight as ChevronRightIcon, Repeat2,
@@ -11,6 +11,8 @@ import {
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { Play as PlayIcon, Square as StopIcon } from 'lucide-react';
 import { sessions as focusSessions, startSession, stopSession, durationMs, formatDuration, useNow } from '../services/focus';
+import { getHabitGrid } from '../services/tasks';
+import { Flame as FlameIcon, Grid3x3 } from 'lucide-react';
 import { getNote, setNote } from '../services/journal';
 import { PageHeader, Card, CardHeader, Empty, Progress, Select, Modal } from './ui';
 import { EditorLayout, PropRow, TitleInput, SectionTitle, DueField, ComposerShell } from './editor';
@@ -88,6 +90,53 @@ function RunningPill({ run }) {
       className="h-6 px-2 rounded-md inline-flex items-center gap-1.5 text-[11.5px] font-mono tabular-nums text-emerald-300 bg-emerald-400/10 border border-emerald-400/20 hover:bg-emerald-400/15 cursor-pointer shrink-0">
       <StopIcon size={8} fill="currentColor" /> {formatDuration(durationMs(run, now), { seconds: true })}
     </button>
+  );
+}
+
+/* Every recurring task as a strip of days: green done, red missed, empty
+   when it wasn't due. Patterns jump out — "Gym never happens on Mondays". */
+const HABIT_COLORS = { done: 'var(--ok)', missed: 'rgba(245,118,138,0.45)', pending: 'rgba(255,255,255,0.18)', off: 'transparent' };
+function HabitHeatmap({ version, selected, onPickDate }) {
+  const [days, setDays] = useState(30);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => getHabitGrid(days), [days, version]);
+  if (!rows.length) return null;
+  const pctOf = r => (r == null ? '—' : Math.round(r * 100) + '%');
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader icon={Grid3x3} title="Habits" meta={rows.length}
+        action={<div className="flex items-center gap-0.5 p-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]">
+          {[14, 30, 60].map(n => (
+            <button key={n} onClick={() => setDays(n)} aria-pressed={days === n}
+              className={`h-6 px-2 rounded text-[11.5px] cursor-pointer transition-colors ${days === n ? 'bg-white/[0.1] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{n}d</button>
+          ))}
+        </div>} />
+      <div className="px-4 pb-4 space-y-3">
+        {rows.map(r => (
+          <div key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4">
+            <div className="sm:w-48 shrink-0 min-w-0 flex items-baseline gap-2">
+              <span className="text-[13px] text-slate-200 truncate" title={r.title}>{r.title}</span>
+              <span className={`text-[12px] tabular-nums shrink-0 ${r.rate == null ? 'text-slate-600' : r.rate >= 0.8 ? 'text-emerald-400' : r.rate < 0.4 ? 'text-rose-400' : 'text-amber-400'}`}>{pctOf(r.rate)}</span>
+              {r.streak > 1 && <span className="inline-flex items-center gap-0.5 text-[11.5px] text-amber-400 tabular-nums shrink-0"><FlameIcon size={11} />{r.streak}</span>}
+            </div>
+            <div className="flex-1 flex gap-[2px] min-w-0" role="list" aria-label={`${r.title}, last ${days} days`}>
+              {r.cells.map(c => (
+                <button key={c.date} role="listitem" onClick={() => onPickDate?.(c.date)}
+                  title={`${new Date(c.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} — ${c.state === 'off' ? 'not due' : c.state === 'pending' ? 'due today' : c.state}`}
+                  className={`flex-1 min-w-0 h-4 rounded-[3px] cursor-pointer transition-transform hover:scale-y-125 ${c.state === 'off' ? 'border border-white/[0.06]' : ''} ${c.date === selected ? 'ring-1 ring-white/60' : ''}`}
+                  style={{ background: HABIT_COLORS[c.state] }} />
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 border-t border-white/[0.05] text-[11.5px] text-slate-500">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: HABIT_COLORS.done }} />Done</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: HABIT_COLORS.missed }} />Missed</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] border border-white/[0.1]" />Not due</span>
+          <span className="ml-auto hidden sm:inline">Click a day to open it</span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -955,6 +1004,8 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
               )}
             </>
           )}
+
+          <HabitHeatmap version={tasksVersion} selected={selectedDate} onPickDate={setSelectedDate} />
         </div>
       </div>
 

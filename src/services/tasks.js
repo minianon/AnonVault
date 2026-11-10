@@ -469,13 +469,13 @@ function isDoneOn(task, dateStr, completions) {
     : !!task.completed;
 }
 
-/** Per-day scheduled/completed counts, oldest first, ending today. */
-export function getCompletionHistory(days = 30) {
+/** Per-day scheduled/completed counts, oldest first, ending `end` days from today (0 = today, -7 = a week ago). */
+export function getCompletionHistory(days = 30, end = 0) {
   const tasks = loadLocalTasks();
   const completions = loadCompletions();
   const out = [];
 
-  for (let i = -(days - 1); i <= 0; i++) {
+  for (let i = end - (days - 1); i <= end; i++) {
     const date = dateStrOffset(i);
     const due = tasks.filter(t => taskAppliesOnDate(t, date) && createdOnOrBefore(t, date));
     const done = due.filter(t => isDoneOn(t, date, completions));
@@ -490,7 +490,7 @@ export function getCompletionHistory(days = 30) {
 }
 
 /** Per-recurring-task reliability over its scheduled days in the window. */
-export function getTaskReliability(days = 30) {
+export function getTaskReliability(days = 30, end = 0) {
   const tasks = loadLocalTasks().filter(t => t.is_recurring);
   const completions = loadCompletions();
 
@@ -498,7 +498,7 @@ export function getTaskReliability(days = 30) {
     .map(t => {
       let scheduled = 0;
       let completed = 0;
-      for (let i = -(days - 1); i <= 0; i++) {
+      for (let i = end - (days - 1); i <= end; i++) {
         const date = dateStrOffset(i);
         if (!taskAppliesOnDate(t, date) || !createdOnOrBefore(t, date)) continue;
         scheduled++;
@@ -516,6 +516,37 @@ export function getTaskReliability(days = 30) {
     })
     .filter(r => r.scheduled > 0)
     .sort((a, b) => a.rate - b.rate);
+}
+
+/**
+ * One row per recurring task for the last `days` days, oldest first:
+ * each day is 'done', 'missed', 'off' (not scheduled that day, or before the
+ * task existed) — plus the hit rate and the current run of done days.
+ */
+export function getHabitGrid(days = 30) {
+  const tasks = loadLocalTasks().filter(t => t.is_recurring);
+  const completions = loadCompletions();
+  const today = dateStrOffset(0);
+  return tasks.map(t => {
+    const cells = [];
+    let scheduled = 0, done = 0;
+    for (let i = -(days - 1); i <= 0; i++) {
+      const date = dateStrOffset(i);
+      if (!taskAppliesOnDate(t, date) || !createdOnOrBefore(t, date)) { cells.push({ date, state: 'off' }); continue; }
+      const ok = isDoneOn(t, date, completions);
+      // Today isn't missed until it's over.
+      const state = ok ? 'done' : date === today ? 'pending' : 'missed';
+      if (state !== 'pending') { scheduled++; if (ok) done++; }
+      cells.push({ date, state });
+    }
+    let run = 0;
+    for (let i = cells.length - 1; i >= 0; i--) {
+      const st = cells[i].state;
+      if (st === 'off' || st === 'pending') continue;
+      if (st === 'done') run++; else break;
+    }
+    return { id: t.id, title: t.title, recurrence: t.recurrence, cells, rate: scheduled ? done / scheduled : null, streak: run };
+  }).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
 }
 
 /**

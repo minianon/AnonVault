@@ -2,7 +2,7 @@
    side under one roof. Both views stay mounted so switching tabs keeps each
    one's search, filters and scroll. */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import IdeaVaultView from './IdeaVaultView';
 import { IncomeIdeasTab } from './MoneyExtras';
 import { PageHeader, Segmented } from './ui';
@@ -15,6 +15,11 @@ export default function IdeasSection({ setActiveTab, showToast, onLock, onMenuTo
     try { return localStorage.getItem(KEY) === 'income' ? 'income' : 'ideas'; } catch { return 'ideas'; }
   });
   const switchTab = t => { setTab(t); try { localStorage.setItem(KEY, t); } catch { /* ignore */ } };
+  useEffect(() => {
+    const onTab = e => { if (e.detail === 'ideas' || e.detail === 'income') switchTab(e.detail); };
+    window.addEventListener('anonvault:ideas-tab', onTab);
+    return () => window.removeEventListener('anonvault:ideas-tab', onTab);
+  }, []);
   const settings = useMoneySettings();
   const fmt = (n, o) => formatMoney(n, settings.currency, o);
 

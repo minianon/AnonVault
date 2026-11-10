@@ -1,11 +1,16 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Search, CornerDownLeft, Plus, CalendarRange, Lightbulb, CheckSquare, KanbanSquare,
-  ArrowRight, Play, Wallet, Square,
+  ArrowRight, Play, Wallet, Square, Timer, Quote, CircleDollarSign, CalendarClock, TrendingUp, HandCoins,
 } from 'lucide-react';
 import { NAV } from '../nav';
-import { startSession, stopAll, sessions, isRunning } from '../services/focus';
-import { transactions, formatMoney, ymd } from '../services/money';
+import { startSession, stopAll, sessions, isRunning, durationMs, formatDuration } from '../services/focus';
+import {
+  transactions, formatMoney, ymd, categoryMeta, incomeSources, emis, investments, loans, incomeIdeas,
+} from '../services/money';
+import { quotes as quoteStore } from '../services/quotes';
+import { getAllTasksSync } from '../services/tasks';
+import { openCard } from '../utils/jump';
 import { addItem } from '../services/board';
 import { parseCapture, formatWhen } from '../services/nlp';
 
@@ -20,7 +25,22 @@ const KIND_META = {
   stop:      { icon: Square,        label: 'Focus' },
   money:     { icon: Wallet,        label: 'Money' },
   card:      { icon: KanbanSquare,  label: 'Board' },
+  session:   { icon: Timer,         label: 'Focus' },
+  expense:   { icon: Wallet,        label: 'Money' },
+  income:    { icon: CircleDollarSign, label: 'Money' },
+  emi:       { icon: CalendarClock, label: 'EMI' },
+  invest:    { icon: TrendingUp,    label: 'Investment' },
+  loan:      { icon: HandCoins,     label: 'Lending' },
+  quote:     { icon: Quote,         label: 'Quote' },
 };
+
+/* Bold the part of a result that matched, so it's clear why it's there. */
+function Mark({ text, q }) {
+  const t = String(text || '');
+  const i = q ? t.toLowerCase().indexOf(q) : -1;
+  if (i < 0) return t;
+  return <>{t.slice(0, i)}<span className="text-slate-50 font-semibold">{t.slice(i, i + q.length)}</span>{t.slice(i + q.length)}</>;
+}
 
 const norm = v => (v || '').toString().toLowerCase();
 
@@ -51,7 +71,15 @@ export default function CommandPalette({
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
-  const running = sessions.useAll().filter(isRunning);
+  const allSessions = sessions.useAll();
+  const running = allSessions.filter(isRunning);
+  const txList = transactions.useAll();
+  const sourceList = incomeSources.useAll();
+  const emiList = emis.useAll();
+  const investList = investments.useAll();
+  const loanList = loans.useAll();
+  const incomeIdeaList = incomeIdeas.useAll();
+  const quoteList = quoteStore.useAll();
 
   useEffect(() => {
     if (!open) return;
@@ -86,18 +114,47 @@ export default function CommandPalette({
         title: `Log expense ${formatMoney(expense.amount)}${expense.note ? ` · ${expense.note}` : ''}` });
     }
 
-    for (const t of tasks || []) {
-      if (t && hit(t.title)) out.push({ kind: 'task', id: 't-' + t.id, title: t.title, tab: 'tasks', group: 'Results', meta: t.is_recurring ? t.recurrence : 'today' });
+    // Everything you've stored, grouped by where it lives; a few per group.
+    const PER = 5;
+    const group = (name, rows) => { out.push(...rows.slice(0, PER).map(r => ({ ...r, group: name }))); };
+    const day = d => (d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : undefined);
+
+    group('Board', (boardItems || []).filter(p => p && hit(p.title, p.description, p.label))
+      .map(p => ({ kind: 'project', id: 'b-' + p.id, title: p.title, cardId: p.id, meta: p.status === 'done' ? 'done' : p.due_date ? day(p.due_date) : p.label || p.status })));
+    const allTasks = (() => { try { return getAllTasksSync(); } catch { return tasks || []; } })();
+    group('Checklist', allTasks.filter(t => t && hit(t.title, (t.subtasks || []).map(x => x.title).join(' ')))
+      .map(t => ({ kind: 'task', id: 't-' + t.id, title: t.title, tab: 'tasks', meta: t.is_recurring ? t.recurrence : t.date ? day(t.date) : undefined })));
+    group('Hackathons', (applications || []).filter(a => a && hit(a.name, a.company, a.notes))
+      .map(a => ({ kind: 'hackathon', id: 'h-' + a.id, title: a.name, tab: 'timeline', meta: a.company || undefined, selectId: a.id })));
+    group('Ideas', [
+      ...(ideas || []).filter(i => i && hit(i.title, i.content, (i.tags || []).join(' ')))
+        .map(i => ({ kind: 'idea', id: 'i-' + i.id, title: i.title, tab: 'ideas', meta: (i.tags || [])[0], selectId: i.id })),
+      ...incomeIdeaList.filter(i => hit(i.title, i.notes, i.note))
+        .map(i => ({ kind: 'idea', id: 'ii-' + i.id, title: i.title, tab: 'ideas', meta: 'income idea', ideasTab: 'income' })),
+    ]);
+    // Focus: one row per activity, with the total time spent on it.
+    const byLabel = new Map();
+    for (const x of allSessions) {
+      if (!hit(x.label, x.project, x.note)) continue;
+      const cur = byLabel.get(x.label) || { ms: 0, n: 0, last: x };
+      cur.ms += durationMs(x); cur.n += 1;
+      byLabel.set(x.label, cur);
     }
-    for (const a of applications || []) {
-      if (a && hit(a.name, a.company, a.notes)) out.push({ kind: 'hackathon', id: 'h-' + a.id, title: a.name, tab: 'timeline', group: 'Results', meta: a.company || undefined, selectId: a.id });
-    }
-    for (const p of boardItems || []) {
-      if (p && hit(p.title, p.description, p.label)) out.push({ kind: 'project', id: 'b-' + p.id, title: p.title, tab: 'board', group: 'Results', meta: p.label || p.status });
-    }
-    for (const i of ideas || []) {
-      if (i && hit(i.title, i.content, (i.tags || []).join(' '))) out.push({ kind: 'idea', id: 'i-' + i.id, title: i.title, tab: 'ideas', group: 'Results', meta: (i.tags || [])[0], selectId: i.id });
-    }
+    group('Focus', [...byLabel.entries()].map(([label, v]) => ({
+      kind: 'session', id: 'f-' + label, title: label, tab: 'focus', restart: v.last,
+      meta: `${formatDuration(v.ms)} · ${v.n} session${v.n === 1 ? '' : 's'}`,
+    })));
+    group('Money', [
+      ...txList.filter(t => hit(t.note, categoryMeta(t.category).label))
+        .map(t => ({ kind: t.type === 'income' ? 'income' : 'expense', id: 'x-' + t.id, title: t.note || categoryMeta(t.category).label,
+          sub: `${t.type === 'income' ? '+' : ''}${formatMoney(t.amount)}`, tab: 'money', moneyTab: 'overview', meta: day(t.date) })),
+      ...sourceList.filter(x => hit(x.name, x.note)).map(x => ({ kind: 'income', id: 'src-' + x.id, title: x.name, tab: 'money', moneyTab: 'income', meta: 'income source' })),
+      ...emiList.filter(x => hit(x.name, x.note)).map(x => ({ kind: 'emi', id: 'emi-' + x.id, title: x.name, sub: formatMoney(x.amount), tab: 'money', moneyTab: 'emi', meta: 'EMI' })),
+      ...investList.filter(x => hit(x.name, x.note, x.kind)).map(x => ({ kind: 'invest', id: 'inv-' + x.id, title: x.name, tab: 'money', moneyTab: 'invest', meta: x.kind })),
+      ...loanList.filter(x => hit(x.person, x.note)).map(x => ({ kind: 'loan', id: 'loan-' + x.id, title: x.person, sub: formatMoney(x.amount), tab: 'money', moneyTab: 'lending', meta: x.direction })),
+    ]);
+    group('Quotes', quoteList.filter(x => hit(x.text, x.author))
+      .map(x => ({ kind: 'quote', id: 'q-' + x.id, title: x.text, tab: 'quotes', meta: x.author })));
     for (const s of NAV) {
       if (hit(s.label)) out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate' });
     }
@@ -118,7 +175,7 @@ export default function CommandPalette({
     out.push({ kind: 'action', id: 'new-idea', title: `Save idea “${raw}”`, action: 'idea', group: 'Actions' });
 
     return out.slice(0, 40);
-  }, [query, tasks, applications, ideas, boardItems, running.length]);
+  }, [query, tasks, applications, ideas, boardItems, running.length, allSessions, txList, sourceList, emiList, investList, loanList, incomeIdeaList, quoteList]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setCursor(0); }, [query]);
@@ -153,6 +210,17 @@ export default function CommandPalette({
         transactions.add({ type: 'expense', amount: item.expense.amount, category: 'other', note: item.expense.note, method: 'upi', date: ymd() });
         break;
       default:
+        if (item.cardId) { openCard(item.cardId); break; }
+        if (item.moneyTab) {
+          setActiveTab('money');
+          window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: item.moneyTab }));
+          break;
+        }
+        if (item.ideasTab) {
+          setActiveTab('ideas');
+          window.dispatchEvent(new CustomEvent('anonvault:ideas-tab', { detail: item.ideasTab }));
+          break;
+        }
         if (item.selectId) {
           if (item.kind === 'idea') onSelectIdea?.(item.selectId);
           else if (item.kind === 'project') onSelectProject?.(item.selectId);
@@ -195,7 +263,7 @@ export default function CommandPalette({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search, jump, “250 lunch”, or “call bank tomorrow 5pm”…"
+            placeholder="Search everything, or type “250 lunch”, “call bank tomorrow 5pm”…"
             className="flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder:text-slate-500"
             aria-label="Command"
           />
@@ -220,8 +288,9 @@ export default function CommandPalette({
                   onMouseMove={() => cursor !== idx && setCursor(idx)}
                   className={`w-full flex items-center gap-3 px-2.5 h-10 rounded-lg text-left cursor-pointer ${active ? 'bg-white/[0.07]' : ''}`}>
                   <Icon size={15} className={active ? 'text-slate-200' : 'text-slate-500'} />
-                  <span className="flex-1 min-w-0 text-[13.5px] text-slate-200 truncate">
-                    {r.title}
+                  <span className="flex-1 min-w-0 text-[13.5px] text-slate-300 truncate">
+                    {r.group === 'Quick actions' || r.group === 'Actions' || r.group === 'Suggested' || r.group === 'Navigate'
+                      ? <span className="text-slate-200">{r.title}</span> : <Mark text={r.title} q={norm(query.trim())} />}
                     {r.sub && <span className="text-slate-500 ml-2 text-[12.5px]">{r.sub}</span>}
                   </span>
                   {r.meta && <span className="text-[12px] text-slate-500 shrink-0 hidden sm:inline capitalize">{r.meta}</span>}

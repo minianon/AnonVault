@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, Settings2, Trash2, Pencil, Search, Download,
-  ArrowDownRight, ArrowUpRight, Wallet, PieChart, CalendarDays,
+  ArrowDownRight, ArrowUpRight, Wallet, PieChart, CalendarDays, Repeat, X,
 } from 'lucide-react';
 import {
   transactions, EXPENSE_CATEGORIES, INCOME_CATEGORIES, METHODS, categoryMeta,
   useMoneySettings, setMoneySettings, formatMoney, ymd, monthKey, shiftMonth, monthLabel,
-  daysInMonth, summarizeMonth, spentOn,
+  daysInMonth, summarizeMonth, spentOn, detectRepeats,
 } from '../services/money';
 import { IncomeSourcesTab, InvestmentsTab, LendingTab, EmiTab } from './MoneyExtras';
 import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Select, inputCls, Donut } from './ui';
@@ -14,6 +14,53 @@ import { topParts } from '../utils/chart';
 import { DateInput } from './DatePicker';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY'];
+
+/* Things you pay for again and again, found from your own expenses — so a
+   forgotten subscription shows up as "₹649 every month" instead of hiding
+   in the list. Dismissed ones stay hidden on this device. */
+const HIDDEN_KEY = 'anonvault_money_repeat_hidden';
+function RepeatPayments({ all, fmt }) {
+  const [hidden, setHidden] = useState(() => { try { return JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'); } catch { return []; } });
+  const found = useMemo(() => detectRepeats(all), [all]);
+  const list = found.filter(r => !hidden.includes(r.key));
+  if (!list.length) return null;
+  const hide = key => {
+    const next = [...hidden, key];
+    setHidden(next);
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* fine */ }
+  };
+  const perMonth = list.reduce((t, r) => t + r.perMonth, 0);
+  const everyLabel = e => (e === 'month' ? 'every month' : e === 'week' ? 'every week' : `every ${e} days`);
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader icon={Repeat} title="Repeat payments" meta={list.length}
+        action={<span className="text-[12px] text-slate-500 tabular-nums">≈ {fmt(perMonth)}/month · {fmt(perMonth * 12)}/year</span>} />
+      <div className="pb-1.5">
+        {list.map(r => (
+          <div key={r.key} className="group flex items-center gap-3 px-4 h-12 hover:bg-white/[0.02] transition-colors">
+            <span className="w-7 h-7 rounded-md bg-white/[0.04] border border-white/[0.06] flex items-center justify-center shrink-0">
+              <Repeat size={12} className="text-slate-400" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] text-slate-200 truncate capitalize">{r.name}</p>
+              <p className="text-[11.5px] text-slate-500 truncate">
+                {categoryMeta(r.category).label} · seen {r.count}× · {r.late
+                  ? <span className="text-amber-400">expected {r.next.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, not logged yet</span>
+                  : `next around ${r.next.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-[13px] text-slate-100 tabular-nums">{fmt(r.amount)}</p>
+              <p className="text-[11.5px] text-slate-500">{everyLabel(r.every)}</p>
+            </div>
+            <button onClick={() => hide(r.key)} className="icon-btn !w-7 !h-7 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100"
+              title="Not a repeat payment — hide" aria-label={`Hide ${r.name}`}><X size={13} /></button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
 
 const MONEY_TABS = [
   { id: 'overview', label: 'Overview' },
@@ -346,6 +393,8 @@ export default function MoneyView({ onLock, onMenuToggle, showToast }) {
               </div>
             </Card>
           </div>
+
+          <RepeatPayments all={all} fmt={fmt} />
 
           {/* Transactions */}
           <Card>
