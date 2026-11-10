@@ -186,6 +186,8 @@ CREATE TABLE IF NOT EXISTS public.focus_sessions (
 );
 ALTER TABLE public.focus_sessions ADD COLUMN IF NOT EXISTS company_id UUID;
 ALTER TABLE public.focus_sessions ADD COLUMN IF NOT EXISTS board_id UUID;
+ALTER TABLE public.focus_sessions ADD COLUMN IF NOT EXISTS task_id TEXT;
+ALTER TABLE public.focus_sessions ADD COLUMN IF NOT EXISTS planned_min INTEGER;
 CREATE INDEX IF NOT EXISTS focus_sessions_started_idx ON public.focus_sessions (started_at);
 
 -- Money: expenses and income

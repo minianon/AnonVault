@@ -470,7 +470,7 @@ export default function IdeaVaultView({
   const searchRef = useRef(null);
   const captureRef = useRef(null);
 
-  // N (and the header button) go to quick capture. The archive hides the
+  // N goes to quick capture; the header button opens the full editor. The archive hides the
   // composer, since nothing can be created into it.
   const focusCapture = useCallback(() => {
     setShowArchived(false);
@@ -795,7 +795,7 @@ export default function IdeaVaultView({
         onLock={onLock}
         headerChildren={headerExtra}
         actions={
-          <button onClick={focusCapture} className="btn-primary h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
+          <button onClick={() => handleOpenAdd()} className="btn-primary h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
             <Plus size={14} />
             <span className="hidden sm:inline">New idea</span>
           </button>

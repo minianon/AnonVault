@@ -4,8 +4,9 @@
    these so they look and behave the same. */
 
 import { useRef, useState } from 'react';
-import { Calendar, X, Link2, ExternalLink, Plus, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Calendar, X, Link2, ExternalLink, Plus, Image as ImageIcon, Loader2, Maximize2 } from 'lucide-react';
 import { ymdLocal, withProtocol, hostOf } from '../utils/links';
+import { CalendarPopover, TimeSelect } from './DatePicker';
 
 /** Two-pane body: children on the left, `aside` (properties) on the right. */
 export function EditorLayout({ children, aside, asideWidth = 280 }) {
@@ -59,8 +60,9 @@ export function SectionTitle({ children, right }) {
 /** Due/deadline as quick choices instead of a bare dd-mm-yyyy box.
     `compact` renders just a chip (for toolbars and composers). */
 export function DueField({ date, time = '', onDate, onTime, withTime = true, compact = false, placeholder = 'Due date' }) {
-  const pickRef = useRef(null);
+  const anchorRef = useRef(null);
   const [menu, setMenu] = useState(false);
+  const [picker, setPicker] = useState(false);
   const now = new Date();
   const today = ymdLocal(now);
   const quick = [
@@ -68,15 +70,11 @@ export function DueField({ date, time = '', onDate, onTime, withTime = true, com
     { label: 'Tomorrow', d: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) },
     { label: 'Next week', d: new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((8 - now.getDay()) % 7 || 7)) },
   ];
-  const openPicker = () => {
-    const el = pickRef.current;
-    if (!el) return;
-    try { el.showPicker(); } catch { el.focus(); el.click(); }
-  };
+  const openPicker = () => setPicker(true);
   const tone = !date ? null : date < today ? 'bad' : date === today ? 'warn' : null;
-  const hiddenPicker = (
-    <input ref={pickRef} type="date" value={date || ''} onChange={e => { if (e.target.value) { onDate(e.target.value); setMenu(false); } }}
-      className="absolute left-0 bottom-0 w-px h-px opacity-0 pointer-events-none" tabIndex={-1} aria-hidden="true" />
+  const hiddenPicker = picker && (
+    <CalendarPopover anchorRef={anchorRef} value={date || ''} clearable={false}
+      onPick={d => { if (d) onDate(d); setPicker(false); setMenu(false); }} onClose={() => setPicker(false)} />
   );
   const chipCls = `h-7 px-2 rounded-md text-[12.5px] border inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
     tone === 'bad' ? 'text-rose-300 border-rose-400/30 bg-rose-400/[0.06]'
@@ -87,7 +85,7 @@ export function DueField({ date, time = '', onDate, onTime, withTime = true, com
 
   if (compact) {
     return (
-      <span className="relative inline-flex items-center gap-1">
+      <span ref={anchorRef} className="relative inline-flex items-center gap-1">
         <button type="button" onClick={() => setMenu(m => !m)} className={chipCls} aria-haspopup="menu" aria-expanded={menu}>
           <Calendar size={12} />{label}{date && time ? ` · ${time}` : ''}
         </button>
@@ -109,7 +107,7 @@ export function DueField({ date, time = '', onDate, onTime, withTime = true, com
             {withTime && date && (
               <span className="flex items-center gap-2 px-2 pt-1.5 mt-1 border-t border-white/[0.06]">
                 <span className="text-[12px] text-slate-500">Time</span>
-                <input type="time" value={time} onChange={e => onTime?.(e.target.value)} className="input-premium h-7 px-2 rounded-md text-[12px] flex-1" />
+                <TimeSelect size="xs" className="flex-1" value={time} onChange={v => onTime?.(v)} />
               </span>
             )}
           </span>
@@ -121,7 +119,7 @@ export function DueField({ date, time = '', onDate, onTime, withTime = true, com
 
   if (!date) {
     return (
-      <div className="relative flex flex-wrap gap-1">
+      <div ref={anchorRef} className="relative flex flex-wrap gap-1">
         {quick.map(q => (
           <button key={q.label} type="button" onClick={() => onDate(ymdLocal(q.d))}
             className="h-7 px-2 rounded-md text-[12px] text-slate-300 bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] hover:text-slate-100 cursor-pointer transition-colors">
@@ -137,11 +135,10 @@ export function DueField({ date, time = '', onDate, onTime, withTime = true, com
     );
   }
   return (
-    <div className="relative flex flex-wrap items-center gap-1.5">
+    <div ref={anchorRef} className="relative flex flex-wrap items-center gap-1.5">
       <button type="button" onClick={openPicker} className={chipCls}><Calendar size={12} />{label}</button>
       {withTime && (
-        <input type="time" value={time} onChange={e => onTime?.(e.target.value)} aria-label="Time"
-          className="input-premium h-7 px-2 rounded-md text-[12px] w-[92px]" />
+        <TimeSelect size="xs" className="w-[104px] !h-7" value={time} onChange={v => onTime?.(v)} />
       )}
       <button type="button" onClick={() => { onDate(''); onTime?.(''); }} className="icon-btn !w-7 !h-7" title="Clear date"><X size={12} /></button>
       {hiddenPicker}
@@ -221,5 +218,63 @@ export function ImagesEditor({ images, onChange, uploading = 0, onAddFiles, cove
         </div>
       )}
     </section>
+  );
+}
+
+/** The inline "Add …" box used at the top of Board, Checklist and Hackathons:
+    one line until focused, then it opens for details. Enter adds; the
+    "Full editor" button hands the draft to the section's big editor. */
+export function ComposerShell({
+  inputRef, icon: Icon, placeholder, value, onChange, onSubmit, onExpand, onCancel,
+  canSubmit = true, submitLabel = 'Add', isDirty = false, preview, children,
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  const onFocus = () => setOpen(true);
+  const onBlur = e => {
+    const to = e.relatedTarget;
+    if (wrap.current?.contains(to)) return;
+    if (to?.closest?.('[role=listbox]')) return; // themed dropdown menus live outside
+    if (!value.trim() && !isDirty) setOpen(false);
+  };
+  const keep = e => e.preventDefault();
+  const submit = e => { e?.preventDefault(); if (value.trim() && canSubmit) { onSubmit(); inputRef?.current?.focus(); } };
+
+  return (
+    <form ref={wrap} onSubmit={submit} onFocus={onFocus} onBlur={onBlur}
+      className={`panel transition-[border-color,box-shadow] duration-200 ${open ? '!border-white/[0.14] shadow-[var(--shadow-md)]' : ''}`}>
+      <div className="flex items-center gap-2.5 px-3.5">
+        {Icon && <Icon size={15} className={`shrink-0 transition-colors ${open ? 'text-slate-300' : 'text-slate-500'}`} />}
+        <input ref={inputRef} value={value} onChange={e => onChange(e.target.value)} aria-label={placeholder}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
+            else if (e.key === 'Escape') e.currentTarget.blur();
+          }}
+          placeholder={placeholder}
+          className="flex-1 min-w-0 h-11 bg-transparent text-[14px] text-slate-100 placeholder:text-slate-500 outline-none" />
+        {!open && <span className="kbd hidden sm:inline-flex shrink-0" title="Press N">N</span>}
+      </div>
+      {open && (
+        <div className="px-3.5 pb-3 fade-up">
+          {preview}
+          <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.05] pt-2.5">{children}</div>
+          <div className="flex items-center gap-2 mt-2.5">
+            <span className="hidden md:flex items-center gap-1 text-[11.5px] text-slate-600"><span className="kbd">↵</span> add</span>
+            {onExpand && (
+              <button type="button" onMouseDown={keep} onClick={() => { onExpand(); setOpen(false); }}
+                className="ml-auto btn-ghost h-8 px-2.5 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5" title="Open the full editor">
+                <Maximize2 size={12} /><span className="hidden sm:inline">Full editor</span>
+              </button>
+            )}
+            <button type="button" onMouseDown={keep} onClick={() => { onCancel?.(); setOpen(false); inputRef?.current?.blur(); }}
+              className={`${onExpand ? '' : 'ml-auto '}btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer`}>Cancel</button>
+            <button type="submit" onMouseDown={keep} disabled={!value.trim() || !canSubmit}
+              className="btn-primary h-8 px-3.5 rounded-lg text-[13px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+              {submitLabel}
+            </button>
+          </div>
+        </div>
+      )}
+    </form>
   );
 }

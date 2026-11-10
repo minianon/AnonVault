@@ -9,7 +9,9 @@ import {
   daysInMonth, summarizeMonth, spentOn,
 } from '../services/money';
 import { IncomeSourcesTab, InvestmentsTab, LendingTab, EmiTab } from './MoneyExtras';
-import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Select, inputCls } from './ui';
+import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Select, inputCls, Donut } from './ui';
+import { topParts } from '../utils/chart';
+import { DateInput } from './DatePicker';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY'];
 
@@ -93,7 +95,6 @@ function EntryForm({ initial, onSubmit, submitLabel = 'Add', compact = false, au
               className={`h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1.5 border transition-colors cursor-pointer ${
                 active ? 'bg-white/[0.09] border-white/[0.16] text-slate-100' : 'bg-transparent border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
               }`}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.color }} />
               {c.label}
             </button>
           );
@@ -101,8 +102,7 @@ function EntryForm({ initial, onSubmit, submitLabel = 'Add', compact = false, au
       </div>
 
       <div className={`flex flex-wrap items-center gap-2 ${compact ? '' : 'pt-1'}`}>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} max="2100-12-31"
-          className={`${inputCls} !h-8 !w-auto`} aria-label="Date" />
+        <DateInput size="sm" value={date} onChange={v => setDate(v || ymd())} ariaLabel="Date" className="w-[150px]" />
         <Select size="sm" className="w-24" value={method} onChange={setMethod} ariaLabel="Paid with"
           options={METHODS.map(m => ({ value: m.id, label: m.label }))} />
         <button type="submit" className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer ml-auto">
@@ -301,36 +301,48 @@ export default function MoneyView({ onLock, onMenuToggle, showToast }) {
                 {sum.categories.length === 0 ? (
                   <p className="text-[13px] text-slate-500 py-8 text-center">No spending this month.</p>
                 ) : (
-                  <>
-                    <div className="flex h-2 rounded-full overflow-hidden gap-[2px] mb-4">
-                      {sum.categories.map(c => (
-                        <div key={c.id} style={{ flex: c.total, background: c.color }} title={`${c.label}: ${fmt(c.total)}`} />
-                      ))}
-                    </div>
-                    <div className="space-y-2.5">
-                      {sum.categories.slice(0, 7).map(c => (
-                        <div key={c.id} className="flex items-center gap-2.5 text-[13px]">
-                          <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: c.color }} />
-                          <span className="text-slate-300 truncate">{c.label}</span>
-                          <span className="ml-auto text-slate-200 tabular-nums">{fmt(c.total)}</span>
-                          <span className="text-slate-500 tabular-nums w-10 text-right">{Math.round((c.total / sum.expense) * 100)}%</span>
+                  (() => {
+                    const parts = topParts(sum.categories.map(c => ({ id: c.id, label: c.label, value: c.total })));
+                    return (
+                      <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-5">
+                        <Donut parts={parts} format={v => fmt(v)} center={fmt(sum.expense)} sub="spent" />
+                        <div className="w-full space-y-2.5 min-w-0">
+                          {parts.map(c => (
+                            <div key={c.id} className="flex items-center gap-2.5 text-[13px]">
+                              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: c.color }} />
+                              <span className="text-slate-300 truncate">{c.label}</span>
+                              <span className="ml-auto text-slate-200 tabular-nums">{fmt(c.value)}</span>
+                              <span className="text-slate-500 tabular-nums w-10 text-right">{Math.round((c.value / sum.expense) * 100)}%</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </>
+                      </div>
+                    );
+                  })()
                 )}
               </div>
             </Card>
 
             <Card className="lg:col-span-3">
-              <CardHeader icon={CalendarDays} title="Daily spending" meta={monthLabel(month, { month: 'long' })} />
+              <CardHeader icon={CalendarDays} title="Daily spending" meta={monthLabel(month, { month: 'long' })}
+                action={sum.expense > 0 && <span className="text-[12px] text-slate-500 tabular-nums">avg {fmt(sum.expense / Math.max(1, elapsed))}/day</span>} />
               <div className="px-4 pb-4">
-                <Bars highlightLast={false} height={120} color="var(--accent)"
-                  values={sum.byDay.map((v, i) => ({
-                    label: (i + 1) % 5 === 0 || i === 0 ? String(i + 1) : '',
-                    value: v,
-                    title: `${i + 1} ${monthLabel(month, { month: 'short' })}: ${fmt(v)}`,
-                  }))} />
+                {(() => {
+                  const todayDay = isCurrent ? today.getDate() : null;
+                  const spentDays = sum.byDay.filter(v => v > 0).length;
+                  if (!spentDays) return <p className="text-[13px] text-slate-500 py-10 text-center">No spending logged this month.</p>;
+                  return (
+                    <Bars highlightLast={false} height={120} color="var(--accent)" format={v => fmt(v)}
+                      values={sum.byDay.map((v, i) => ({
+                        label: (i + 1) % 5 === 0 || i === 0 || i + 1 === todayDay ? String(i + 1) : '',
+                        value: v,
+                        highlight: i + 1 === todayDay,
+                        muted: todayDay != null && i + 1 > todayDay,
+                        tip: new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, i + 1)
+                          .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) + (v > 0 ? '' : ' · nothing spent'),
+                      }))} />
+                  );
+                })()}
               </div>
             </Card>
           </div>
@@ -368,8 +380,8 @@ export default function MoneyView({ onLock, onMenuToggle, showToast }) {
                         return (
                           <div key={t.id} className="group flex items-center gap-3 px-4 h-12 hover:bg-white/[0.02] transition-colors">
                             <span className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 border border-white/[0.06]"
-                              style={{ background: c.color + '1a' }}>
-                              {income ? <ArrowDownRight size={13} style={{ color: c.color }} /> : <ArrowUpRight size={13} style={{ color: c.color }} />}
+                              style={{ background: income ? 'rgba(79,209,160,0.1)' : 'rgba(255,255,255,0.04)' }}>
+                              {income ? <ArrowDownRight size={13} className="text-emerald-400" /> : <ArrowUpRight size={13} className="text-slate-400" />}
                             </span>
                             <div className="min-w-0 flex-1">
                               <p className="text-[13px] text-slate-200 truncate">{t.note || c.label}</p>

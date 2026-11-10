@@ -19,7 +19,7 @@
    }
    ───────────────────────────────────────────────────────── */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { createCollection } from './localStore';
 
 export const sessions = createCollection({
@@ -28,7 +28,7 @@ export const sessions = createCollection({
   sort: (a, b) => (b.started_at || '').localeCompare(a.started_at || ''),
 });
 
-export function startSession({ label, project = null, company_id = null, board_id = null }) {
+export function startSession({ label, project = null, company_id = null, board_id = null, task_id = null, planned_min = null }) {
   const clean = (label || '').trim();
   if (!clean) return null;
   return sessions.add({
@@ -36,14 +36,46 @@ export function startSession({ label, project = null, company_id = null, board_i
     project: project ? project.trim() || null : null,
     company_id: company_id || null,
     board_id: board_id || null,
+    task_id: task_id || null,
+    planned_min: planned_min ? Number(planned_min) : null,
     started_at: new Date().toISOString(),
     ended_at: null,
     note: '',
   });
 }
 
-export function stopSession(id) {
-  return sessions.update(id, { ended_at: new Date().toISOString() });
+export function stopSession(id, at = new Date()) {
+  return sessions.update(id, { ended_at: new Date(at).toISOString() });
+}
+
+/** When a timed session is due to end (ms), or null for open-ended ones. */
+export function plannedEnd(s) {
+  return s.planned_min ? new Date(s.started_at).getTime() + s.planned_min * 60000 : null;
+}
+
+/** Add a finished session after the fact ("I worked 2-4pm"). */
+export function logSession({ label, project = null, company_id = null, started_at, ended_at, note = '' }) {
+  const clean = (label || '').trim();
+  if (!clean) return null;
+  return sessions.add({
+    label: clean, project: project ? project.trim() || null : null, company_id: company_id || null,
+    board_id: null, task_id: null, planned_min: null, started_at, ended_at, note,
+  });
+}
+
+/* Daily focus goal in minutes (per device). */
+const GOAL_KEY = 'anonvault_focus_goal_min';
+const goalListeners = new Set();
+export function getFocusGoal() {
+  const v = Number(localStorage.getItem(GOAL_KEY));
+  return Number.isFinite(v) && v > 0 ? v : 240;
+}
+export function setFocusGoal(min) {
+  localStorage.setItem(GOAL_KEY, String(min));
+  goalListeners.forEach(f => f());
+}
+export function useFocusGoal() {
+  return useSyncExternalStore(cb => { goalListeners.add(cb); return () => goalListeners.delete(cb); }, getFocusGoal);
 }
 
 export function stopAll() {
@@ -52,7 +84,7 @@ export function stopAll() {
 
 /** Start a fresh session with the same label/project. */
 export function resumeSession(s) {
-  return startSession({ label: s.label, project: s.project, company_id: s.company_id });
+  return startSession({ label: s.label, project: s.project, company_id: s.company_id, board_id: s.board_id, task_id: s.task_id });
 }
 
 export function isRunning(s) { return !s.ended_at; }

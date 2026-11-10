@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Check, ChevronRight, ChevronLeft, Plus, Repeat2, Play, Square, CalendarClock, KanbanSquare, Wallet, Quote, Receipt, CircleDollarSign,
-  CheckSquare, Timer, ArrowUpRight, ArrowDownRight, Flame,
+  CheckSquare, Timer, ArrowUpRight, ArrowDownRight, Flame, X, CornerDownLeft,
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, toggleTaskCompletion, toggleSubtaskCompletion,
@@ -19,11 +19,11 @@ import { quotes, dayOffset } from '../services/quotes';
 import { PageHeader, Card, CardHeader, LinkButton, Stat, Progress, Empty } from './ui';
 
 const QUICK_ACTIONS = [
-  { id: 'task', label: 'Task', icon: Plus },
-  { id: 'timer', label: 'Timer', icon: Play },
-  { id: 'expense', label: 'Expense', icon: Receipt },
-  { id: 'board', label: 'Card', icon: KanbanSquare },
-  { id: 'quotes', label: 'Quote', icon: Quote },
+  { id: 'task', label: 'Task', icon: Plus, inline: true },
+  { id: 'timer', label: 'Timer', icon: Play, inline: true },
+  { id: 'expense', label: 'Expense', icon: Receipt, section: 'Money' },
+  { id: 'board', label: 'Card', icon: KanbanSquare, section: 'Board' },
+  { id: 'quotes', label: 'Quote', icon: Quote, section: 'Quotes' },
 ];
 
 /* Tasks done today as a ring. Fills smoothly when you tick things off. */
@@ -255,11 +255,37 @@ export default function DashboardView({
       } })),
   ];
 
+  // Task and Timer open right here, under the buttons, instead of
+  // scrolling to a box further down the page.
+  const [quickMode, setQuickMode] = useState(null); // null | 'task' | 'timer'
+  const [quickText, setQuickText] = useState('');
+  const quickRef = useRef(null);
   const quick = id => {
-    if (id === 'task') taskInputRef.current?.focus();
-    else if (id === 'timer') focusInputRef.current?.focus();
+    if (id === 'task' || id === 'timer') {
+      setQuickMode(m => (m === id ? null : id));
+      setQuickText('');
+      setTimeout(() => quickRef.current?.focus(), 30);
+    }
     else if (id === 'expense') go('money', 'overview');
     else go(id);
+  };
+  const submitQuick = async e => {
+    e.preventDefault();
+    const text = quickText.trim();
+    if (!text) return quickRef.current?.focus();
+    if (quickMode === 'task') {
+      setQuickText('');
+      await onQuickAddTask?.(text);
+      setTasks(getTasksForDateSync(todayStr));
+      quickRef.current?.focus(); // stay open to add a few in a row
+    } else {
+      const started = startSession({ label: text });
+      if (started) {
+        showToast?.('success', 'Timer started', text);
+        setQuickText('');
+        setQuickMode(null);
+      }
+    }
   };
 
   const go = (tab, moneyTab) => {
@@ -323,13 +349,47 @@ export default function DashboardView({
                 <p className="text-[14px] text-slate-400 mt-1">
                   {summaryParts.length ? summaryParts.join(' · ') : 'Nothing scheduled yet. Add a task or start a timer.'}
                 </p>
-                <div className="flex flex-wrap gap-2 mt-4">
-                  {QUICK_ACTIONS.map(a => (
-                    <button key={a.label} onClick={() => quick(a.id)}
-                      className="h-8 px-3 rounded-lg text-[12.5px] font-medium text-slate-300 bg-white/[0.04] border border-white/[0.07] hover:bg-white/[0.08] hover:text-slate-100 transition-colors cursor-pointer inline-flex items-center gap-1.5">
-                      <a.icon size={13} className="text-slate-500" /> {a.label}
+                {/* Task and Timer open in place; the rest take you to their section. */}
+                <div className="flex flex-wrap items-center gap-2 mt-4">
+                  {QUICK_ACTIONS.filter(a => a.inline).map(a => {
+                    const on = quickMode === a.id;
+                    return (
+                      <button key={a.label} onClick={() => quick(a.id)} aria-expanded={on}
+                        className={`h-8 px-3 rounded-lg text-[12.5px] font-medium border transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                          on ? 'bg-slate-100 border-slate-100 text-slate-950' : 'text-slate-200 bg-white/[0.06] border-white/[0.1] hover:bg-white/[0.1] hover:text-slate-50'}`}>
+                        <a.icon size={13} className={on ? 'text-slate-700' : 'text-slate-400'} /> {a.label}
+                      </button>
+                    );
+                  })}
+                  <span className="w-px h-5 bg-white/[0.1] mx-1" aria-hidden="true" />
+                  {QUICK_ACTIONS.filter(a => !a.inline).map(a => (
+                    <button key={a.label} onClick={() => quick(a.id)} title={`Open ${a.section}`}
+                      className="group/q h-8 pl-2.5 pr-2 rounded-lg text-[12.5px] text-slate-400 hover:text-slate-100 hover:bg-white/[0.05] transition-colors cursor-pointer inline-flex items-center gap-1.5">
+                      <a.icon size={13} className="text-slate-500 group-hover/q:text-slate-300" /> {a.label}
+                      <ArrowUpRight size={12} className="text-slate-600 group-hover/q:text-slate-300 transition-transform group-hover/q:translate-x-px group-hover/q:-translate-y-px" />
                     </button>
                   ))}
+                </div>
+                <div className="grid transition-[grid-template-rows,opacity] duration-300"
+                  style={{ gridTemplateRows: quickMode ? '1fr' : '0fr', opacity: quickMode ? 1 : 0, transitionTimingFunction: 'var(--ease)' }}>
+                  <div className="overflow-hidden">
+                    <form onSubmit={submitQuick} className="mt-3 flex items-center gap-2 max-w-[560px]">
+                      <div className="relative flex-1">
+                        {quickMode === 'timer'
+                          ? <Timer size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                          : <Plus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />}
+                        <input ref={quickRef} value={quickText} onChange={e => setQuickText(e.target.value)} tabIndex={quickMode ? 0 : -1}
+                          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setQuickMode(null); } }}
+                          placeholder={quickMode === 'timer' ? 'What are you working on?' : 'Add a task for today…'}
+                          className="input-premium w-full h-9 pl-9 pr-3 rounded-lg text-[13px]" />
+                      </div>
+                      <button type="submit" tabIndex={quickMode ? 0 : -1} disabled={!quickText.trim()}
+                        className="btn-primary h-9 px-3.5 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-default">
+                        {quickMode === 'timer' ? <><Play size={12} fill="currentColor" /> Start</> : <><CornerDownLeft size={13} /> Add</>}
+                      </button>
+                      <button type="button" onClick={() => setQuickMode(null)} tabIndex={quickMode ? 0 : -1} className="icon-btn shrink-0" aria-label="Close"><X size={14} /></button>
+                    </form>
+                  </div>
                 </div>
               </div>
               <ProgressRing value={tasks.length ? done / tasks.length : 0} label={tasks.length ? `${done}/${tasks.length}` : '—'} sub="tasks" onClick={() => setActiveTab('tasks')} />

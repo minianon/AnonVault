@@ -827,23 +827,37 @@ function AppInner() {
     }
   };
 
-  const handleQuickAddTask = async title => {
+  const handleQuickAddTask = async (title, date) => {
     if (!title) return;
     try {
       await addTask({
         title,
         is_recurring: false,
-        date: todayDateStr(),
+        date: date || todayDateStr(),
         priority: 'medium',
         subtasks: [],
       });
       refreshPendingTasks();
-      showToast('success', 'Task Added', `"${title}" added to today.`);
+      showToast('success', 'Task Added', date && date !== todayDateStr() ? `"${title}" added for ${new Date(date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}.` : `"${title}" added to today.`);
     } catch (err) {
       console.error('Quick add task failed:', err);
       showToast('error', 'Add Failed', 'Could not create the task.');
     }
   };
+
+  // Cross-section shortcuts (see utils/jump.js).
+  const quickAddRef = useRef(handleQuickAddTask);
+  useEffect(() => { quickAddRef.current = handleQuickAddTask; });
+  useEffect(() => {
+    const onGoto = e => { if (e.detail) setActiveTab(e.detail); };
+    const onAdd = e => quickAddRef.current?.(e.detail?.title, e.detail?.date);
+    window.addEventListener('anonvault:goto', onGoto);
+    window.addEventListener('anonvault:add-task', onAdd);
+    return () => {
+      window.removeEventListener('anonvault:goto', onGoto);
+      window.removeEventListener('anonvault:add-task', onAdd);
+    };
+  }, []);
 
   const handleQuickAddIdea = async title => {
     if (!title) return;
@@ -893,6 +907,7 @@ function AppInner() {
           mobileOpen={mobileMenuOpen}
           setMobileOpen={setMobileMenuOpen}
           onOpenPalette={() => setPaletteOpen(true)}
+          onLock={handleLock}
         />
 
         <main className="flex-1 h-full overflow-hidden flex flex-col relative min-w-0">

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Search, Calendar, Trash2, ChevronLeft, ChevronRight, Check, AlignLeft, Download,
-  KanbanSquare, Link2, Image as ImageIcon, Play, Square, Timer, X, Loader2, Sparkles, Flag, Tag, Maximize2,
+  KanbanSquare, Link2, Image as ImageIcon, Play, Square, Timer, X, Loader2, Sparkles, Flag, Tag, Maximize2, ListPlus,
 } from 'lucide-react';
+import { addToChecklist } from '../utils/jump';
 import { board, COLUMNS, PRIORITIES, addItem, moveItem, dueInfo } from '../services/board';
 import { sessions, startSession, stopSession, boardTime, formatDuration, useNow } from '../services/focus';
 import { parseCapture, formatWhen } from '../services/nlp';
@@ -77,6 +78,12 @@ function ItemModal({ item, isNew = false, labels, onClose, showToast, time, now 
     <Modal open onClose={onClose} title={isNew ? 'New card' : 'Card'} width={780}
       footer={<>
         {!isNew && <button onClick={remove} className="btn-danger h-8 px-3 rounded-lg text-[13px] cursor-pointer mr-auto inline-flex items-center gap-1.5"><Trash2 size={13} /><span className="hidden sm:inline">Delete</span></button>}
+        {!isNew && (
+          <button type="button" onClick={() => addToChecklist(title.trim() || item.title)} title="Add this to today's checklist"
+            className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
+            <ListPlus size={13} /><span className="hidden sm:inline">Today's checklist</span>
+          </button>
+        )}
         <span className="hidden sm:flex items-center gap-1 text-[11.5px] text-slate-600 mr-1"><span className="kbd">Ctrl</span><span className="kbd">↵</span> save</span>
         <button onClick={onClose} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Cancel</button>
         <button onClick={save} disabled={!title.trim() || uploading > 0}

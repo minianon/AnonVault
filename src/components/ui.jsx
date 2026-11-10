@@ -380,25 +380,90 @@ export function Field({ label, children, hint }) {
 
 export const inputCls = 'input-premium w-full h-9 px-3 rounded-lg text-[13px]';
 
-/** Simple bar chart with no dependencies. values: [{ label, value, title? }] */
-export function Bars({ values, height = 72, highlightLast = true, format = v => v, color = 'var(--accent)' }) {
-  const max = Math.max(1, ...values.map(v => v.value));
+/** Donut: one solid ring split into parts, total in the middle, details on hover. */
+export function Donut({ parts, size = 148, thickness = 18, center, sub, format = v => v }) {
+  const [hover, setHover] = useState(null);
+  const total = parts.reduce((t, p) => t + p.value, 0) || 1;
+  const r = (size - thickness - 6) / 2; // room for the hover swell, so nothing clips
+  const c = 2 * Math.PI * r;
+  // Start offset of each slice, worked out before render.
+  const offsets = parts.map((_, i) => parts.slice(0, i).reduce((t, q) => t + (q.value / total) * c, 0));
+  const hv = hover != null ? parts[hover] : null;
   return (
-    <div className="flex items-end gap-1.5" style={{ height: height + 18 }}>
-      {values.map((v, i) => {
-        const h = Math.max(v.value > 0 ? 3 : 2, (v.value / max) * height);
-        const last = highlightLast && i === values.length - 1;
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1.5 min-w-0 group" title={v.title || `${v.label}: ${format(v.value)}`}>
-            <div className="w-full rounded-[3px] transition-[height,background-color] duration-500"
-              style={{
-                height: h,
-                background: v.value > 0 ? (last ? color : 'rgba(255,255,255,0.16)') : 'rgba(255,255,255,0.05)',
-              }} />
-            <span className={`text-[10.5px] tabular-nums ${last ? 'text-slate-300' : 'text-slate-600'}`}>{v.label}</span>
-          </div>
-        );
-      })}
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" role="img"
+        aria-label={parts.map(p => `${p.label} ${Math.round((p.value / total) * 100)}%`).join(', ')}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={thickness} />
+        {parts.map((p, i) => {
+          // Slices meet edge to edge so the ring reads as one whole circle.
+          const len = Math.max(0, (p.value / total) * c);
+          return (
+            <circle key={p.id} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={p.color} strokeWidth={hover === i ? thickness + 4 : thickness}
+              strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offsets[i]}
+              onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
+              style={{ transition: 'stroke-width .15s ease', cursor: 'default' }}>
+              <title>{`${p.label}: ${format(p.value)} (${Math.round((p.value / total) * 100)}%)`}</title>
+            </circle>
+          );
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-4">
+        <span className="text-[15px] font-semibold tabular-nums text-slate-100 leading-tight truncate max-w-full">{hv ? format(hv.value) : center}</span>
+        <span className="text-[11px] text-slate-500 truncate max-w-full">{hv ? hv.label : sub}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Bar chart with no dependencies. values: [{ label, value, title?, muted?, highlight? }]
+    Zero days draw nothing (no fake stubs); `muted` marks days still to come. */
+export function Bars({ values, height = 72, highlightLast = true, format = v => v, color = 'var(--accent)', average }) {
+  const [hover, setHover] = useState(null);
+  const max = Math.max(1, ...values.map(v => v.value));
+  const avgY = average ? (average / max) * height : null;
+  const n = values.length;
+  const hv = hover != null ? values[hover] : null;
+  const hvH = hv && hv.value > 0 ? Math.max(3, (hv.value / max) * height) : 0;
+  return (
+    <div className="relative" onMouseLeave={() => setHover(null)}>
+      {avgY != null && avgY > 0 && (
+        <div className="absolute left-0 right-0 border-t border-dashed border-white/[0.18] pointer-events-none z-10" style={{ bottom: 18 + avgY }}>
+          <span className="absolute right-0 -top-[18px] text-[10.5px] text-slate-500 tabular-nums">avg {format(average)}</span>
+        </div>
+      )}
+      {/* instant tooltip — follows the hovered bar, no browser delay */}
+      {hv && (
+        <div className="absolute z-20 pointer-events-none -translate-x-1/2 px-2.5 py-1.5 rounded-lg border border-white/[0.1] whitespace-nowrap"
+          style={{
+            left: `clamp(48px, ${((hover + 0.5) / n) * 100}%, calc(100% - 48px))`,
+            bottom: 18 + hvH + 10,
+            background: 'var(--surface-3)',
+          }}>
+          <p className="text-[12.5px] font-semibold text-slate-100 tabular-nums leading-tight">{hv.value > 0 ? format(hv.value) : '—'}</p>
+          <p className="text-[11px] text-slate-500 leading-tight mt-0.5">{hv.tip || hv.title || hv.label}</p>
+        </div>
+      )}
+      <div className="flex items-end gap-[3px] sm:gap-1.5" style={{ height: height + 18 }}>
+        {values.map((v, i) => {
+          const h = v.value > 0 ? Math.max(3, (v.value / max) * height) : 0;
+          const hl = v.highlight || (highlightLast && i === values.length - 1);
+          const on = hover === i;
+          return (
+            <div key={i} className="flex-1 h-full flex flex-col justify-end items-center gap-1.5 min-w-0 cursor-default"
+              onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} aria-label={v.tip || v.title || `${v.label}: ${format(v.value)}`}>
+              <div className="w-full flex-1 flex items-end">
+                <div className="w-full rounded-t-[3px] rounded-b-[1px] transition-[height,background-color,opacity] duration-300"
+                  style={{
+                    height: h,
+                    background: hl ? color : v.muted ? 'rgba(255,255,255,0.06)' : on ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.22)',
+                  }} />
+              </div>
+              <span className={`text-[10.5px] h-3 leading-3 tabular-nums ${hl || on ? 'text-slate-200' : v.muted ? 'text-slate-700' : 'text-slate-600'}`}>{v.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="absolute left-0 right-0 h-px bg-white/[0.08]" style={{ bottom: 18 + 6 }} />
     </div>
   );
 }

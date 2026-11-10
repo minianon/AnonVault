@@ -141,3 +141,23 @@ export function formatWhen(date, time, now = new Date()) {
   }
   return s;
 }
+
+/* "gym every day", "standup weekdays", "call mom every sun",
+   "dsa daily", "review every mon and thu" → repeat info + cleaned title. */
+const DAY_KEYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+export function parseRepeat(input) {
+  let text = ` ${input || ''} `;
+  let rep = null;
+  const cut = re => { const m = re.exec(text.toLowerCase()); if (!m) return null; text = text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length); return m; };
+  if (cut(/\s(?:every ?day|daily|everyday)(?=\s)/)) rep = { recurrence: 'daily', days: [] };
+  else if (cut(/\s(?:every )?weekdays?(?=\s)/)) rep = { recurrence: 'weekdays', days: [] };
+  else if (cut(/\s(?:every )?weekends?(?=\s)/)) rep = { recurrence: 'weekends', days: [] };
+  else {
+    const m = cut(/\severy ((?:(?:sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)[a-z]*(?:,? (?:and |& )?)?)+)(?=\s)/);
+    if (m) {
+      const days = [...new Set((m[1].match(/sun|mon|tue|wed|thu|fri|sat/g) || []).map(d => DAY_KEYS[d]))];
+      if (days.length) rep = { recurrence: 'weekly', days };
+    }
+  }
+  return { title: text.replace(/\s{2,}/g, ' ').trim(), repeat: rep };
+}

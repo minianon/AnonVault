@@ -2,16 +2,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Trash2, Edit3, X, ChevronDown, Check, RotateCcw,
   ChevronLeft, ChevronRight as ChevronRightIcon, Repeat2,
-  ListChecks, EyeOff, CheckCheck, CalendarRange, NotebookPen, Flag, Calendar
+  ListChecks, EyeOff, CheckCheck, CalendarRange, NotebookPen, Flag, Calendar, CheckSquare
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, addTask, updateTask, deleteTask,
   toggleTaskCompletion, toggleSubtaskCompletion
 } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
+import { Play as PlayIcon, Square as StopIcon } from 'lucide-react';
+import { sessions as focusSessions, startSession, stopSession, durationMs, formatDuration, useNow } from '../services/focus';
 import { getNote, setNote } from '../services/journal';
 import { PageHeader, Card, CardHeader, Empty, Progress, Select, Modal } from './ui';
-import { EditorLayout, PropRow, TitleInput, SectionTitle, DueField } from './editor';
+import { EditorLayout, PropRow, TitleInput, SectionTitle, DueField, ComposerShell } from './editor';
+import { parseCapture, parseRepeat, formatWhen } from '../services/nlp';
 
 /* ── helpers ───────────────────────────────────────────── */
 function toDateStr(date) {
@@ -72,7 +75,24 @@ function Checkbox({ checked, onChange, size = 'md', disabled = false }) {
 }
 
 /* ── Task row ────────────────────────────────────────────── */
+/* A focus timer tied to this task: the play button starts one, and while
+   it runs the row shows the elapsed time (click to stop). */
+function useTaskTimer(task) {
+  const all = focusSessions.useAll();
+  return all.find(s => !s.ended_at && s.task_id === task.id) || null;
+}
+function RunningPill({ run }) {
+  const now = useNow(1000, true);
+  return (
+    <button onClick={e => { e.stopPropagation(); stopSession(run.id); }} title="Stop timer"
+      className="h-6 px-2 rounded-md inline-flex items-center gap-1.5 text-[11.5px] font-mono tabular-nums text-emerald-300 bg-emerald-400/10 border border-emerald-400/20 hover:bg-emerald-400/15 cursor-pointer shrink-0">
+      <StopIcon size={8} fill="currentColor" /> {formatDuration(durationMs(run, now), { seconds: true })}
+    </button>
+  );
+}
+
 function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, hackathonName }) {
+  const run = useTaskTimer(task);
   const [collapsed, setCollapsed] = useState(false);
   const hasSubtasks  = task.subtasks && task.subtasks.length > 0;
   const completedSubs = hasSubtasks ? task.subtasks.filter(s => s.completed).length : 0;
@@ -129,8 +149,20 @@ function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, hac
           )}
         </div>
 
+        {run && <RunningPill run={run} />}
+
         {/* Row actions — always visible on touch, on hover from sm up */}
         <div className="flex items-center shrink-0 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          {!run && !task.completed && (
+            <button
+              onClick={e => { e.stopPropagation(); startSession({ label: task.title, task_id: task.id, project: hackathonName || null }); }}
+              className="icon-btn !w-7 !h-7 hover:!text-emerald-400 cursor-pointer"
+              title="Start a focus timer"
+              aria-label="Start a focus timer"
+            >
+              <PlayIcon size={12} />
+            </button>
+          )}
           <button
             onClick={e => { e.stopPropagation(); onCancel(task); }}
             className="icon-btn !w-7 !h-7 hover:!text-amber-400 cursor-pointer"
@@ -279,7 +311,76 @@ function SubtasksEditor({ subtasks, onChange, draft, onDraft, onCommitDraft }) {
 /* ── Task editor ─────────────────────────────────────────────
    Built from the shared editor kit (editor.jsx) so it matches Board's card
    editor: content on the left, properties on the right. */
-function TaskFormModal({ isOpen, onClose, onSave, onDelete, editingTask, defaultDate, showToast, applications }) {
+/* ─── Inline composer ──────────────────────────────────
+   "gym every day !high", "submit report friday", "standup weekdays".
+   Dates and repeat words are picked up; anything set by hand wins. */
+const REPEAT_OPTIONS = [
+  { value: 'none', label: 'One-off' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekdays', label: 'Weekdays' },
+  { value: 'weekends', label: 'Weekends' },
+  { value: 'weekly', label: 'Custom days…' },
+];
+const PRIORITY_OPTIONS = [
+  { value: 'high', label: 'High', color: '#f5768a' },
+  { value: 'medium', label: 'Medium', color: '#f0b445' },
+  { value: 'low', label: 'Low', color: '#6c6c75' },
+];
+
+function TaskComposer({ inputRef, defaultDate, onAdd, onExpand }) {
+  const [text, setText] = useState('');
+  const [priority, setPriority] = useState(null);
+  const [repeat, setRepeat] = useState(null);
+  const [date, setDate] = useState('');
+
+  const r = parseRepeat(text);
+  const p = parseCapture(r.title);
+  const effRepeat = repeat || r.repeat?.recurrence || 'none';
+  const effDays = repeat ? [] : r.repeat?.days || [];
+  const effPriority = priority || p.priority || 'medium';
+  const effDate = date || p.date || defaultDate;
+  const title = (p.title || r.title || text).trim();
+
+  const reset = () => { setText(''); setPriority(null); setRepeat(null); setDate(''); };
+  const draft = () => ({
+    title, priority: effPriority, is_recurring: effRepeat !== 'none',
+    recurrence: effRepeat === 'none' ? 'daily' : effRepeat, recurrence_days: effDays,
+    date: effRepeat === 'none' ? effDate : null, subtasks: [],
+  });
+
+  const submit = () => {
+    // "Custom days" without days picked needs the full editor's day chips.
+    if (effRepeat === 'weekly' && effDays.length === 0) { onExpand(draft()); reset(); return; }
+    onAdd(draft());
+    reset();
+  };
+
+  const understood = (r.repeat || p.date || p.priority) && (
+    <p className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-slate-500 mb-2 -mt-1">
+      <span className="text-accent-400">✦</span> Understood:
+      {r.repeat && !repeat && <span className="text-slate-300">{r.repeat.recurrence === 'weekly'
+        ? 'every ' + r.repeat.days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')
+        : r.repeat.recurrence}</span>}
+      {p.date && !date && effRepeat === 'none' && <span className="text-slate-300">{formatWhen(p.date)}</span>}
+      {p.priority && !priority && <span className="text-slate-300">{p.priority} priority</span>}
+    </p>
+  );
+
+  return (
+    <ComposerShell inputRef={inputRef} icon={CheckSquare} value={text} onChange={setText}
+      placeholder='Add a task… try "gym every day" or "submit report friday !high"'
+      onSubmit={submit} onExpand={() => { onExpand(draft()); reset(); }} onCancel={reset}
+      isDirty={!!(priority || repeat || date)} submitLabel="Add task" preview={understood}>
+      <Select size="sm" className="w-[112px]" value={effPriority} onChange={setPriority} ariaLabel="Priority" options={PRIORITY_OPTIONS} />
+      <Select size="sm" className="w-[140px]" value={effRepeat} onChange={setRepeat} ariaLabel="Repeat" options={REPEAT_OPTIONS} />
+      {effRepeat === 'none' && (
+        <DueField compact withTime={false} date={effDate} onDate={d => setDate(d || defaultDate)} placeholder="Date" />
+      )}
+    </ComposerShell>
+  );
+}
+
+function TaskFormModal({ isOpen, onClose, onSave, onDelete, editingTask, defaultDate, showToast, applications, draft }) {
   const [title,         setTitle]         = useState('');
   const [priority,      setPriority]      = useState('medium');
   const [isRecurring,   setIsRecurring]   = useState(false);
@@ -302,13 +403,13 @@ function TaskFormModal({ isOpen, onClose, onSave, onDelete, editingTask, default
       setSubtasks(editingTask.subtasks?.map(s => ({ id: s.id, title: s.title })) || []);
       setHackathonId(editingTask.hackathon_id || '');
     } else {
-      setTitle(''); setPriority('medium'); setIsRecurring(false);
-      setRecurrence('daily'); setRecurrenceDays([]);
-      setTaskDate(defaultDate || todayStr()); setSubtasks([]);
+      setTitle(draft?.title || ''); setPriority(draft?.priority || 'medium'); setIsRecurring(!!draft?.is_recurring);
+      setRecurrence(draft?.recurrence || 'daily'); setRecurrenceDays(draft?.recurrence_days || []);
+      setTaskDate(draft?.date || defaultDate || todayStr()); setSubtasks([]);
       setHackathonId('');
     }
     setStInput('');
-  }, [isOpen, editingTask, defaultDate]);
+  }, [isOpen, editingTask, defaultDate, draft]);
 
   const commitDraft = () => {
     const t = stInput.trim();
@@ -666,10 +767,26 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   useEffect(() => () => clearTimeout(noteTimer.current), []);
 
   const rootRef = useRef(null);
+  const composerRef = useRef(null);
+  const [draft, setDraft] = useState(null);
+  // N goes to the inline composer; the header button opens the full editor.
   useShortcutHooks({
-    onNew: () => { setEditingTask(null); setIsFormOpen(true); },
+    onNew: () => composerRef.current?.focus(),
     rootRef,
   });
+
+  const quickAdd = async task => {
+    try {
+      await addTask(task);
+      showToast?.('success', task.is_recurring ? 'Recurring task added' : 'Task added',
+        task.is_recurring ? task.title : `${task.title} · ${formatWhen(task.date)}`);
+    } catch (err) {
+      console.error(err);
+      showToast?.('error', 'Save Failed', 'Could not save task.');
+    }
+    await refresh();
+  };
+  const expandDraft = d => { setEditingTask(null); setDraft(d); setIsFormOpen(true); };
 
   const hackathonNames = (applications || []).reduce((acc, a) => {
     if (a && a.id) acc[a.id] = a.name;
@@ -686,7 +803,7 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   const progress       = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const isToday        = selectedDate === todayStr();
 
-  const openNew  = () => { setEditingTask(null); setIsFormOpen(true); };
+  const openNew  = () => { setEditingTask(null); setDraft(null); setIsFormOpen(true); };
   const openEdit = t => { setEditingTask(t); setIsFormOpen(true); };
 
   const renderRows = list => list.map(task => (
@@ -737,6 +854,7 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1100px] mx-auto px-4 lg:px-6 py-6 space-y-5 reveal-stagger">
+          <TaskComposer inputRef={composerRef} defaultDate={selectedDate} onAdd={quickAdd} onExpand={expandDraft} />
 
           {/* Progress for the day */}
           {totalCount > 0 && (
@@ -842,8 +960,9 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
 
       <TaskFormModal
         isOpen={isFormOpen}
-        onClose={() => { setIsFormOpen(false); setEditingTask(null); }}
-        onSave={handleSave}
+        onClose={() => { setIsFormOpen(false); setEditingTask(null); setDraft(null); }}
+        onSave={t => { setDraft(null); return handleSave(t); }}
+        draft={draft}
         onDelete={() => { const t = editingTask; setIsFormOpen(false); setEditingTask(null); setDeleteTarget(t); }}
         editingTask={editingTask}
         defaultDate={selectedDate}

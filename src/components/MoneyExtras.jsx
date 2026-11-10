@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react';
 import {
   Plus, Pencil, Trash2, CheckCircle2, RotateCcw, Briefcase, TrendingUp, HandCoins,
-  PiggyBank, Sparkles, ArrowRight, CalendarClock, ChevronDown, ArrowUpRight,
+  PiggyBank, Sparkles, ArrowRight, CalendarClock, ChevronDown, ArrowUpRight, X,
 } from 'lucide-react';
 import { companies as companyStore, companyById, resolveCompany } from '../services/work';
 import {
@@ -15,6 +15,8 @@ import {
   expectedPerMonth, currentValue, outstanding, ymd, monthLabel, shiftMonth, receivedFrom,
 } from '../services/money';
 import { Card, CardHeader, Stat, Empty, Progress, Segmented, Modal, Field, Select, Combo, inputCls } from './ui';
+import { topParts } from '../utils/chart';
+import { DateInput } from './DatePicker';
 
 const num = v => {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''));
@@ -57,6 +59,34 @@ function MonthToggles({ months, isDone, onDo, onUndo, doneLabel, todoLabel }) {
         </button>
       )}
     </div>
+  );
+}
+
+/* A stacked bar with a legend: how a total splits across items. Top 4 +
+   "Other", in the validated chart colours (see CHART_SLOTS in ui.jsx). */
+function Breakdown({ title, note, items, fmt }) {
+  const list = topParts(items);
+  const total = list.reduce((t, x) => t + x.value, 0);
+  if (!list.length) return null;
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <span className="text-[13px] font-medium text-slate-200">{title}</span>
+        <span className="text-[12px] text-slate-500 truncate">{note}</span>
+      </div>
+      <div className="flex h-2.5 rounded-full overflow-hidden gap-[2px] mb-3">
+        {list.map(x => <div key={x.id} style={{ flex: x.value, background: x.color }} title={`${x.label}: ${fmt(x.value)}`} />)}
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+        {list.map(x => (
+          <span key={x.id} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-400" title={fmt(x.value)}>
+            <span className="w-2 h-2 rounded-sm" style={{ background: x.color }} />
+            {x.label} <span className="text-slate-300 tabular-nums">{fmt(x.value)}</span>
+            <span className="text-slate-500 tabular-nums">{Math.round((x.value / total) * 100)}%</span>
+          </span>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -162,7 +192,7 @@ function ReceiveModal({ source, month, fmt, onClose, showToast }) {
           {numInput(amount, setAmount, '0')}
         </Field>
         <Field label="Date">
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
+          <DateInput className="w-full" value={date} onChange={v => setDate(v || ymd())} />
         </Field>
         <button type="submit" className="hidden" />
       </form>
@@ -242,6 +272,13 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
         <Stat label="Unlinked income" value={fmt(unlinked)} hint="Logged without a source" />
       </div>
 
+      <Breakdown title="Where it comes from" fmt={fmt}
+        note={received ? `Received in ${monthLabel(month, { month: 'long' })}` : 'Expected per month'}
+        items={received
+          ? sources.map(s => ({ id: s.id, label: s.name, value: receivedFrom(tx, s.id, month).reduce((t, x) => t + num(x.amount), 0)
+            })).concat(unlinked ? [{ id: 'extra', label: 'Extra / unlinked', value: unlinked, color: '#8d8d96' }] : [])
+          : active.map(s => ({ id: s.id, label: s.name, value: expectedPerMonth(s)[0] }))} />
+
       <Card>
         <CardHeader icon={Briefcase} title="Income sources" meta={sources.length || null}
           action={<button onClick={() => setEditing('new')} className={btnPrimary}><Plus size={13} /> Add source</button>} />
@@ -294,17 +331,38 @@ export function IncomeSourcesTab({ month, fmt, showToast }) {
 
 const MOVE_LABEL = { start: 'Invested', add: 'Invested more', withdraw: 'Withdrew', value: 'Balance updated' };
 
-/* History rows newest-date first. Holdings created before history existed
-   (or edited by hand) get their opening amount shown as the first
-   "Invested" row, so what you put in is always visible. */
-function historyRows(i) {
-  const h = (Array.isArray(i.history) ? i.history : []).map((x, idx) => ({ ...x, idx }));
-  if (!h.some(x => x.type === 'start')) {
-    const addedLater = h.filter(x => x.type === 'add').reduce((s, x) => s + num(x.amount), 0);
-    const opening = num(i.invested) - addedLater;
-    if (opening > 0) h.push({ type: 'start', amount: opening, date: i.date || (i.created_at || '').slice(0, 10), idx: -1 });
+/* The history is the source of truth: totals are worked out by replaying
+   it in date order, so removing any entry (not just the last) keeps
+   "Put in", "Withdrawn" and "Balance" consistent.
+     start / add  → put in += x, balance += x
+     withdraw     → withdrawn += x, balance −= x
+     value        → balance = x (what the app/broker showed that day) */
+function replayHistory(h) {
+  const rows = h.map((x, idx) => ({ ...x, idx }))
+    .sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.idx - b.idx);
+  let invested = 0, withdrawn = 0, bal = 0;
+  for (const x of rows) {
+    const a = num(x.amount);
+    if (x.type === 'start' || x.type === 'add') { invested += a; bal += a; }
+    else if (x.type === 'withdraw') { withdrawn += a; bal -= a; }
+    else if (x.type === 'value') bal = a;
   }
-  return h.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.idx - a.idx);
+  return { invested, withdrawn, current_value: Math.max(0, Math.round(bal * 100) / 100) };
+}
+
+/* Older holdings (or ones edited by hand) may have numbers the history
+   doesn't explain. Add an opening "Invested" row and, if needed, a
+   "Balance updated" row so replaying gives back exactly what's stored. */
+function materializeHistory(i) {
+  const h = (Array.isArray(i.history) ? i.history : []).map(x => ({ ...x }));
+  if (!h.some(x => x.type === 'start')) {
+    const added = h.filter(x => x.type === 'add').reduce((t, x) => t + num(x.amount), 0);
+    h.unshift({ type: 'start', amount: Math.max(0, num(i.invested) - added), date: i.date || (i.created_at || '').slice(0, 10) || ymd(), note: '' });
+  }
+  if (Math.abs(replayHistory(h).current_value - currentValue(i)) > 0.005) {
+    h.push({ type: 'value', amount: currentValue(i), date: ymd(), note: '' });
+  }
+  return h;
 }
 
 function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
@@ -318,18 +376,17 @@ function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
   const [note, setNote] = useState(mode === 'edit' ? initial?.note || '' : '');
   const [error, setError] = useState('');
 
-  const push = (type, amt) => [...(Array.isArray(initial?.history) ? initial.history : []), { type, amount: amt, date, note: note.trim() }];
+  const commitWith = entry => {
+    const history = [...materializeHistory(initial), entry];
+    investments.update(initial.id, { history, ...replayHistory(history) });
+  };
 
   const save = e => {
     e?.preventDefault();
     if (mode === 'topup') {
       const a = num(amount);
       if (a <= 0) return setError('Enter how much you added.');
-      investments.update(initial.id, {
-        invested: num(initial.invested) + a,
-        current_value: currentValue(initial) + a,
-        history: push('add', a),
-      });
+      commitWith({ type: 'add', amount: a, date, note: note.trim() });
       showToast?.('success', 'Added', `${fmt(a)} to ${initial.name}`);
       return onClose();
     }
@@ -338,24 +395,34 @@ function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
       const bal = currentValue(initial);
       if (a <= 0) return setError('Enter how much you withdrew.');
       if (a > bal) return setError(`You only have ${fmt(bal)} in this right now.`);
-      investments.update(initial.id, {
-        withdrawn: num(initial.withdrawn) + a,
-        current_value: bal - a,
-        history: push('withdraw', a),
-      });
+      commitWith({ type: 'withdraw', amount: a, date, note: note.trim() });
       showToast?.('success', 'Withdrawal recorded', `${fmt(a)} from ${initial.name}`);
       return onClose();
     }
     if (mode === 'value') {
       if (value === '') return setError('Enter the balance shown in your app / account.');
-      investments.update(initial.id, { current_value: num(value), history: push('value', num(value)) });
+      commitWith({ type: 'value', amount: num(value), date, note: '' });
       return onClose();
     }
     if (!name.trim()) return setError('Give it a name.');
     if (num(invested) <= 0) return setError('Enter the amount invested.');
-    const row = { name: name.trim(), kind, invested: num(invested), current_value: value === '' ? null : num(value), date, note: note.trim() };
-    if (initial) investments.update(initial.id, row);
-    else investments.add({ ...row, withdrawn: 0, history: [{ type: 'start', amount: num(invested), date, note: '' }] });
+    const row = { name: name.trim(), kind, date, note: note.trim() };
+    if (initial) {
+      // Changing "Total put in" adjusts the opening entry; changing the
+      // balance records a balance update — so history and totals agree.
+      const history = materializeHistory(initial);
+      const start = history.find(x => x.type === 'start');
+      start.amount = Math.max(0, num(start.amount) + (num(invested) - num(initial.invested)));
+      start.date = date;
+      if (value !== '' && Math.abs(num(value) - currentValue(initial)) > 0.005) {
+        history.push({ type: 'value', amount: num(value), date: ymd(), note: '' });
+      }
+      investments.update(initial.id, { ...row, history, ...replayHistory(history) });
+    } else {
+      const history = [{ type: 'start', amount: num(invested), date, note: '' }];
+      if (value !== '' && num(value) !== num(invested)) history.push({ type: 'value', amount: num(value), date: ymd(), note: '' });
+      investments.add({ ...row, history, ...replayHistory(history) });
+    }
     onClose();
   };
 
@@ -375,7 +442,7 @@ function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
               {numInput(amount, setAmount, 'e.g. 2000')}
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} /></Field>
+              <Field label="Date"><DateInput className="w-full" value={date} onChange={v => setDate(v || ymd())} /></Field>
               <Field label="Note"><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional" className={inputCls} /></Field>
             </div>
           </>
@@ -398,7 +465,7 @@ function InvestmentModal({ initial, mode = 'edit', onClose, showToast, fmt }) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Started on">
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
+                <DateInput className="w-full" value={date} onChange={v => setDate(v || ymd())} />
               </Field>
               <Field label="Note">
                 <input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional" className={inputCls} />
@@ -435,21 +502,15 @@ export function InvestmentsTab({ fmt, showToast }) {
     showToast?.('warning', 'Investment removed', i.name, 6000, { label: 'Undo', onClick: () => investments.restore(i) });
   };
 
-  const undoLast = i => {
-    const h = Array.isArray(i.history) ? i.history : [];
-    const last = h[h.length - 1];
-    if (!last || last.type === 'start') return;
-    const prev = { invested: i.invested, withdrawn: i.withdrawn, current_value: i.current_value, history: h };
-    const next = { history: h.slice(0, -1) };
-    if (last.type === 'add') { next.invested = num(i.invested) - num(last.amount); next.current_value = currentValue(i) - num(last.amount); }
-    if (last.type === 'withdraw') { next.withdrawn = num(i.withdrawn) - num(last.amount); next.current_value = currentValue(i) + num(last.amount); }
-    if (last.type === 'value') {
-      const before = [...h.slice(0, -1)].reverse().find(x => x.type === 'value');
-      next.current_value = before ? num(before.amount) : null;
-    }
-    investments.update(i.id, next);
-    showToast?.('success', 'Undone', `${MOVE_LABEL[last.type]} ${fmt(last.amount)}`, 6000,
-      { label: 'Redo', onClick: () => investments.update(i.id, prev) });
+  const removeEntry = (i, idx) => {
+    const history = materializeHistory(i);
+    const gone = history[idx];
+    if (!gone) return;
+    const prev = { history: i.history, invested: i.invested, withdrawn: i.withdrawn, current_value: i.current_value };
+    const next = history.filter((_, j) => j !== idx);
+    investments.update(i.id, { history: next, ...replayHistory(next) });
+    showToast?.('warning', 'Entry removed', `${MOVE_LABEL[gone.type] || gone.type} ${fmt(gone.amount)} · ${i.name}`, 7000,
+      { label: 'Undo', onClick: () => investments.update(i.id, prev) });
   };
 
   return (
@@ -462,25 +523,8 @@ export function InvestmentsTab({ fmt, showToast }) {
           hint={invested ? `${pct >= 0 ? '+' : ''}${(pct * 100).toFixed(1)}% · balance + withdrawn − put in` : '—'} />
       </div>
 
-      {allocation.length > 0 && (
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[13px] font-medium text-slate-200">Where it sits</span>
-            <span className="text-[12px] text-slate-500">By balance</span>
-          </div>
-          <div className="flex h-2 rounded-full overflow-hidden gap-[2px] mb-3">
-            {allocation.map(a => <div key={a.id} style={{ flex: a.total, background: a.color }} title={`${a.label}: ${fmt(a.total)}`} />)}
-          </div>
-          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-            {allocation.map(a => (
-              <span key={a.id} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-400">
-                <span className="w-2 h-2 rounded-sm" style={{ background: a.color }} />
-                {a.label} <span className="text-slate-500 tabular-nums">{Math.round((a.total / (balance || 1)) * 100)}%</span>
-              </span>
-            ))}
-          </div>
-        </Card>
-      )}
+      <Breakdown title="Where it sits" note="By balance" fmt={fmt}
+        items={allocation.map(a => ({ id: a.id, label: a.label, value: a.total, color: a.color }))} />
 
       <Card>
         <CardHeader icon={PiggyBank} title="Holdings" meta={all.length || null}
@@ -504,8 +548,9 @@ export function InvestmentsTab({ fmt, showToast }) {
               const wd = num(i.withdrawn);
               const g = bal + wd - num(i.invested);
               const r = num(i.invested) ? g / num(i.invested) : 0;
-              const history = historyRows(i);
-              const lastIdx = (Array.isArray(i.history) ? i.history.length : 0) - 1;
+              const history = materializeHistory(i).map((x, idx) => ({ ...x, idx }))
+                .sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.idx - a.idx);
+              const starts = history.filter(x => x.type === 'start').length;
               const expanded = open === i.id;
               return (
                 <div key={i.id} className="border-t border-white/[0.04]">
@@ -547,7 +592,7 @@ export function InvestmentsTab({ fmt, showToast }) {
                           <span>Balance <span className="text-slate-200 tabular-nums">{fmt(bal)}</span></span>
                         </div>
                         {history.map(h => (
-                          <div key={h.idx} className="flex items-center gap-3 px-3 h-9 text-[12.5px]">
+                          <div key={h.idx} className="group/h flex items-center gap-3 px-3 h-9 text-[12.5px] hover:bg-white/[0.02]">
                             <span className="text-slate-500 tabular-nums w-20 shrink-0">
                               {h.date ? new Date(h.date + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' }) : ''}
                             </span>
@@ -555,9 +600,12 @@ export function InvestmentsTab({ fmt, showToast }) {
                             <span className={`tabular-nums ${h.type === 'withdraw' ? 'text-amber-400' : h.type === 'value' ? 'text-slate-300' : 'text-emerald-400'}`}>
                               {h.type === 'withdraw' ? '−' : h.type === 'value' ? '= ' : '+'}{fmt(h.amount)}
                             </span>
-                            {h.idx === lastIdx && h.type !== 'start' && (
-                              <button onClick={() => undoLast(i)} className="text-[11.5px] text-slate-500 hover:text-slate-100 cursor-pointer">Undo</button>
-                            )}
+                            {(h.type !== 'start' || starts > 1) ? (
+                              <button onClick={() => removeEntry(i, h.idx)} title="Remove this entry"
+                                className="icon-btn !w-6 !h-6 hover:!text-rose-400 sm:opacity-0 sm:group-hover/h:opacity-100 focus:opacity-100">
+                                <X size={12} />
+                              </button>
+                            ) : <span className="w-6" title="Change the opening amount with Edit" />}
                           </div>
                         ))}
                       </div>
@@ -610,10 +658,10 @@ function LoanModal({ initial, onClose }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date">
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
+            <DateInput className="w-full" value={date} onChange={v => setDate(v || ymd())} />
           </Field>
           <Field label="Due by">
-            <input type="date" value={due} onChange={e => setDue(e.target.value)} className={inputCls} />
+            <DateInput className="w-full" value={due} onChange={setDue} clearable placeholder="No due date" />
           </Field>
         </div>
         <Field label="Note">
@@ -688,6 +736,11 @@ export function LendingTab({ fmt, showToast }) {
         <Stat label="Overdue" value={overdue.length} tone={overdue.length ? 'bad' : undefined}
           hint={overdue.length ? `${fmt(overdue.reduce((s, l) => s + outstanding(l), 0))} past due` : 'Nothing past due'} />
       </div>
+
+      <Breakdown title="Who owes you" note="Outstanding, by person" fmt={fmt}
+        items={people.filter(([, v]) => v > 0).map(([name, v]) => ({ id: 'o-' + name, label: name, value: v }))} />
+      <Breakdown title="Who you owe" note="Outstanding, by person" fmt={fmt}
+        items={people.filter(([, v]) => v < 0).map(([name, v]) => ({ id: 'u-' + name, label: name, value: -v }))} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 items-start">
         <Card className="lg:col-span-2">
@@ -1048,6 +1101,9 @@ export function EmiTab({ fmt, showToast }) {
         <Stat label="Paid this month" value={fmt(active.filter(r => r.st.paidThisMonth).reduce((a, r) => a + r.st.amount, 0))}
           hint={`${active.length - unpaid.length} of ${active.length}`} />
       </div>
+
+      <Breakdown title="Where it goes" note="Monthly EMIs" fmt={fmt}
+        items={active.map(r => ({ id: r.e.id, label: r.e.name, value: r.st.amount }))} />
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3.5 pb-3">

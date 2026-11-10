@@ -8,6 +8,7 @@ import { emis, emiStats, payEmi, transactions, incomeSources, formatMoney, useMo
 import { sessions, totalForDay, formatDuration } from '../services/focus';
 import { getAllTasksSync } from '../services/tasks';
 import { parseCapture, ymdOf } from '../services/nlp';
+import { addToChecklist } from '../utils/jump';
 import { PageHeader, Card, Empty } from './ui';
 
 const KINDS = {
@@ -33,6 +34,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
   const [selected, setSelected] = useState(today);
   const [hidden, setHidden] = useState(() => new Set());
   const [draft, setDraft] = useState('');
+  const [addAs, setAddAs] = useState('card');
 
   const cards = board.useAll();
   const emiList = emis.useAll();
@@ -114,6 +116,12 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     e.preventDefault();
     if (!draft.trim()) return;
     const p = parseCapture(draft);
+    if (addAs === 'task') {
+      addToChecklist(p.title, p.date || selected);
+      setDraft('');
+      if (p.date && p.date !== selected) go(p.date);
+      return;
+    }
     const it = addItem({ title: p.title, label: p.label || '', priority: p.priority || 'medium', due_date: p.date || selected, due_time: p.time });
     if (it) { setDraft(''); showToast?.('success', 'Card added', it.title); if (p.date && p.date !== selected) go(p.date); }
   };
@@ -239,8 +247,14 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
               <form onSubmit={addOnDay} className="px-3 pt-3">
                 <div className="flex items-center gap-2 h-9 px-2.5 rounded-lg border border-dashed border-white/[0.1] focus-within:border-white/[0.2] focus-within:border-solid transition-colors">
                   <Plus size={14} className="text-slate-500" />
-                  <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Add a card on this day…"
+                  <input value={draft} onChange={e => setDraft(e.target.value)} placeholder={addAs === 'task' ? 'Add a task on this day…' : 'Add a card on this day…'}
                     className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-100 placeholder:text-slate-500 outline-none" />
+                  <div className="flex items-center p-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] shrink-0" role="radiogroup" aria-label="Add as">
+                    {[['card', 'Card'], ['task', 'Task']].map(([v, l]) => (
+                      <button key={v} type="button" role="radio" aria-checked={addAs === v} onClick={() => setAddAs(v)}
+                        className={`h-5 px-1.5 rounded text-[11px] cursor-pointer transition-colors ${addAs === v ? 'bg-white/[0.1] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{l}</button>
+                    ))}
+                  </div>
                 </div>
               </form>
 

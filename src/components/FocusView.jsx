@@ -1,16 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Square, RotateCcw, Trash2, Timer, Layers, History, CornerDownLeft, Building2, Plus, Pencil } from 'lucide-react';
+import { Play, Square, RotateCcw, Trash2, Timer, Layers, History, CornerDownLeft, Building2, Plus, Pencil, KanbanSquare, CheckSquare } from 'lucide-react';
+import { openCard, goTo, askNotify, notify } from '../utils/jump';
+import { DateInput, TimeSelect } from './DatePicker';
 import { companies as companyStore, companyById, nextCompanyColor, COMPANY_COLORS, resolveCompany } from '../services/work';
 import { transactions, incomeSources, formatMoney, monthKey } from '../services/money';
 import { CompanyChip } from './MoneyExtras';
 import {
   sessions, startSession, stopSession, stopAll, resumeSession, isRunning,
   durationMs, overlapMs, dayBounds, totalForDay, dailyTotals, breakdown,
-  formatDuration, useNow, recentLabels,
+  formatDuration, useNow, recentLabels, plannedEnd, logSession, useFocusGoal, setFocusGoal,
 } from '../services/focus';
-import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Combo, inputCls } from './ui';
+import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Combo, Select, inputCls } from './ui';
 
 const timeFmt = { hour: '2-digit', minute: '2-digit' };
+
+const LENGTHS = [
+  { value: '', label: 'No limit' },
+  { value: '25', label: '25 min' },
+  { value: '50', label: '50 min' },
+  { value: '90', label: '90 min' },
+];
+const GOALS = [60, 120, 180, 240, 300, 360, 480, 600].map(m => ({ value: String(m), label: `${m / 60}h a day` }));
 
 function dayLabel(d) {
   const today = new Date();
@@ -30,6 +40,8 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
   const [range, setRange] = useState('week');
   const [splitBy, setSplitBy] = useState('label');
   const [source, setSource] = useState('');
+  const [length, setLength] = useState('');
+  const [sessionModal, setSessionModal] = useState(null); // null | 'new' | session
   const [companyModal, setCompanyModal] = useState(null); // null | 'new' | company
   const companyList = companyStore.useAll();
   const activeCompanies = companyList.filter(c => c.active !== false);
@@ -50,11 +62,27 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
 
   const start = e => {
     e?.preventDefault();
-    const s = startSession({ label, project, company_id: resolveCompany(source) });
+    const s = startSession({ label, project, company_id: resolveCompany(source), planned_min: length || null });
     if (!s) { inputRef.current?.focus(); return; }
+    if (length) askNotify();
     setLabel('');
-    showToast?.('success', 'Timer started', s.label);
+    showToast?.('success', length ? `${length} min block started` : 'Timer started', s.label);
   };
+
+  // Timed blocks stop themselves at the planned end (even if the app was
+  // closed in between, the session ends at the right time, not when reopened).
+  const ended = useRef(new Set());
+  useEffect(() => {
+    for (const s of running) {
+      const end = plannedEnd(s);
+      if (!end || now < end || ended.current.has(s.id)) continue;
+      ended.current.add(s.id);
+      stopSession(s.id, end);
+      notify('Focus block done', `${s.label} · ${s.planned_min} min`);
+      showToast?.('success', `${s.planned_min} min block done`, `${s.label} — take a short break.`, 10000,
+        { label: 'Go again', onClick: () => startSession({ ...s, planned_min: s.planned_min }) });
+    }
+  }, [now, running, showToast]);
 
   const remove = s => {
     sessions.remove(s.id);
@@ -124,6 +152,8 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
                 <Combo value={project} onChange={setProject} placeholder="Project (optional)"
                   suggestions={projectOptions} className="flex-1 sm:w-44 sm:flex-none"
                   inputClassName="h-10 !bg-transparent" ariaLabel="Project" />
+                <Select value={length} onChange={setLength} options={LENGTHS} ariaLabel="Length"
+                  className="!h-10 !bg-transparent w-[112px] shrink-0" />
                 <button type="submit" className="btn-primary h-10 px-4 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-2 shrink-0">
                   <Play size={13} fill="currentColor" /> Start
                 </button>
@@ -155,20 +185,27 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
                       since {new Date(s.started_at).toLocaleTimeString([], timeFmt)}
                     </span>
                   </div>
-                  <p className="text-[14px] font-medium text-slate-100 truncate">{s.label}</p>
+                  <p className="text-[14px] font-medium text-slate-100 truncate flex items-center gap-1.5">
+                    <span className="truncate">{s.label}</span>
+                    <SessionLinks s={s} />
+                  </p>
                   <p className="text-[12.5px] text-slate-500 truncate h-5 flex items-center gap-1.5">
                     <CompanyChip company={companyById(companyList, s.company_id)} />
                     {s.project || (s.company_id ? '' : '\u00a0')}
                   </p>
                   <div className="flex items-end justify-between mt-3">
-                    <span className="font-mono text-[28px] leading-none text-slate-50 tracking-[-0.02em]">
-                      {formatDuration(durationMs(s, now), { seconds: true })}
+                    <span className="flex items-baseline gap-2">
+                      <span className="font-mono text-[28px] leading-none text-slate-50 tracking-[-0.02em]">
+                        {formatDuration(plannedEnd(s) ? Math.max(0, plannedEnd(s) - now) : durationMs(s, now), { seconds: true })}
+                      </span>
+                      {plannedEnd(s) && <span className="text-[12px] text-slate-500">left of {s.planned_min}m</span>}
                     </span>
                     <button onClick={() => stopSession(s.id)}
                       className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
                       <Square size={11} fill="currentColor" /> Stop
                     </button>
                   </div>
+                  {plannedEnd(s) && <Progress className="mt-3" value={durationMs(s, now) / (s.planned_min * 60000)} tone="good" height={3} />}
                 </div>
               ))}
             </div>
@@ -176,7 +213,7 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
 
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Stat label="Focused today" value={formatDuration(todayMs)} hint={`${todaySessions.length} session${todaySessions.length === 1 ? '' : 's'}`} />
+            <GoalStat todayMs={todayMs} count={todaySessions.length} />
             <Stat label="Running now" value={running.length} hint={running.length > 1 ? 'Multitasking' : running.length ? 'Single track' : 'Nothing running'} tone={running.length ? 'good' : undefined} />
             <Stat label="Last 7 days" value={formatDuration(weekMs)} hint={`${activeDays}/7 active days`} />
             <Stat label="Daily average" value={formatDuration(activeDays ? weekMs / activeDays : 0)} hint="On active days" />
@@ -238,7 +275,8 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
 
           {/* Log */}
           <Card>
-            <CardHeader icon={History} title="Log" />
+            <CardHeader icon={History} title="Log"
+              action={<button onClick={() => setSessionModal('new')} className="btn-ghost h-7 px-2.5 rounded-md text-[12px] cursor-pointer inline-flex items-center gap-1"><Plus size={12} /> Add time</button>} />
             {groups.length === 0 ? (
               <Empty icon={Timer} title="No sessions yet"
                 body="Type what you're doing above and press Enter. Start another while the first is running to track work in parallel." />
@@ -253,15 +291,18 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
                         <span className="text-[12px] text-slate-500 tabular-nums">{formatDuration(total)}</span>
                       </div>
                       {g.items.map(s => (
-                        <div key={s.id} className="group flex items-center gap-3 px-4 h-11 hover:bg-white/[0.02] transition-colors">
+                        <div key={s.id} onClick={() => setSessionModal(s)} role="button" tabIndex={0}
+                          onKeyDown={e => { if (e.key === 'Enter') setSessionModal(s); }}
+                          className="group flex items-center gap-3 px-4 h-11 hover:bg-white/[0.02] transition-colors cursor-pointer">
                           <span className="text-[12px] text-slate-500 tabular-nums w-[104px] shrink-0">
                             {new Date(s.started_at).toLocaleTimeString([], timeFmt)} – {new Date(s.ended_at).toLocaleTimeString([], timeFmt)}
                           </span>
                           <span className="text-[13px] text-slate-200 truncate">{s.label}</span>
+                          <SessionLinks s={s} />
                           <span className="hidden sm:inline-flex"><CompanyChip company={companyById(companyList, s.company_id)} /></span>
                           {s.project && <span className="hidden sm:inline text-[11.5px] text-slate-500 px-1.5 h-5 leading-5 rounded bg-white/[0.04] border border-white/[0.05] truncate max-w-[160px]">{s.project}</span>}
                           <span className="ml-auto text-[13px] text-slate-300 tabular-nums shrink-0">{formatDuration(durationMs(s))}</span>
-                          <div className="flex items-center sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                          <div onClick={e => e.stopPropagation()} className="flex items-center sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                             <button onClick={() => resumeSession(s)} className="icon-btn" title="Start again"><RotateCcw size={13} /></button>
                             <button onClick={() => remove(s)} className="icon-btn hover:!text-rose-400" title="Delete"><Trash2 size={13} /></button>
                           </div>
@@ -275,11 +316,15 @@ export default function FocusView({ onLock, onMenuToggle, showToast, projectIdea
           </Card>
 
           <p className="text-[12px] text-slate-600 flex items-center gap-1.5 justify-center pb-4">
-            Press <span className="kbd">N</span> anywhere in Focus to start typing, then <CornerDownLeft size={12} /> to start.
+            Press <span className="kbd">N</span> anywhere in Focus to start typing, then <CornerDownLeft size={12} /> to start. Click a log row to fix its times.
           </p>
         </div>
       </div>
 
+      {sessionModal && (
+        <SessionModal initial={sessionModal === 'new' ? null : sessionModal} companies={companyList} projectOptions={projectOptions}
+          onClose={() => setSessionModal(null)} showToast={showToast} />
+      )}
       {companyModal && (
         <CompanyModal initial={companyModal === 'new' ? null : companyModal} companies={companyList}
           onClose={created => { setCompanyModal(null); if (created) setSource(created.name); }} />
@@ -474,6 +519,142 @@ function CompanyModal({ initial, companies, onClose }) {
             Still working here
           </label>
         )}
+        {error && <p className="text-[12.5px] text-rose-400">{error}</p>}
+        <button type="submit" className="hidden" />
+      </form>
+    </Modal>
+  );
+}
+
+/* Where a session came from: a Board card or a checklist task. */
+function SessionLinks({ s }) {
+  const cls = 'shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded text-[11px] font-normal text-slate-400 bg-white/[0.04] border border-white/[0.06] hover:text-slate-100 hover:bg-white/[0.08] cursor-pointer';
+  if (s.board_id) {
+    return (
+      <button onClick={e => { e.stopPropagation(); openCard(s.board_id); }} title="Open the board card" className={cls}>
+        <KanbanSquare size={10} /> Card
+      </button>
+    );
+  }
+  if (s.task_id) {
+    return (
+      <button onClick={e => { e.stopPropagation(); goTo('tasks'); }} title="Go to the checklist" className={cls}>
+        <CheckSquare size={10} /> Task
+      </button>
+    );
+  }
+  return null;
+}
+
+/* Today against a daily goal, as a ring. The goal is picked inline. */
+function GoalStat({ todayMs, count }) {
+  const goal = useFocusGoal();
+  const pct = Math.min(1, todayMs / (goal * 60000));
+  const r = 19, c = 2 * Math.PI * r;
+  const hit = pct >= 1;
+  return (
+    <div className="panel px-4 py-3.5 flex items-center gap-3.5 min-w-0">
+      <div className="relative shrink-0">
+        <svg width="48" height="48" viewBox="0 0 48 48" className="-rotate-90" aria-hidden="true">
+          <circle cx="24" cy="24" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5" />
+          <circle cx="24" cy="24" r={r} fill="none" stroke={hit ? 'var(--ok)' : 'var(--accent)'} strokeWidth="5" strokeLinecap="round"
+            strokeDasharray={c} strokeDashoffset={c * (1 - pct)} style={{ transition: 'stroke-dashoffset .7s var(--ease)' }} />
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-medium tabular-nums text-slate-300">{Math.round(pct * 100)}%</span>
+      </div>
+      <div className="min-w-0 flex flex-col gap-0.5">
+        <span className="eyebrow truncate">Focused today</span>
+        <span className={`text-[22px] leading-7 font-semibold tracking-[-0.02em] tabular-nums ${hit ? 'text-emerald-400' : 'text-slate-100'}`}>{formatDuration(todayMs)}</span>
+        <span className="flex items-center gap-1 text-[12px] text-slate-500 min-w-0">
+          <span className="truncate shrink-0">{count} session{count === 1 ? '' : 's'} ·</span>
+          <Select size="xs" value={String(goal)} onChange={v => setFocusGoal(Number(v))} ariaLabel="Daily goal"
+            options={GOALS.some(g => g.value === String(goal)) ? GOALS : [...GOALS, { value: String(goal), label: `${formatDuration(goal * 60000)} a day` }]}
+            className="!bg-transparent !border-transparent hover:!border-white/[0.1] !px-1.5 -ml-1" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const pad2 = n => String(n).padStart(2, '0');
+const ymdOfDate = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const hmOf = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const inFuture = d => d.getTime() > Date.now() + 60000;
+
+/* Add time after the fact, or fix the times of a logged session. */
+function SessionModal({ initial, companies, projectOptions, onClose, showToast }) {
+  const [defaults] = useState(() => {
+    const end = new Date(Math.floor(Date.now() / 1800000) * 1800000);
+    return { start: new Date(end.getTime() - 3600000), end };
+  });
+  const st = initial ? new Date(initial.started_at) : defaults.start;
+  const en = initial?.ended_at ? new Date(initial.ended_at) : defaults.end;
+  const [label, setLabel] = useState(initial?.label || '');
+  const [source, setSource] = useState(companyById(companies, initial?.company_id)?.name || '');
+  const [project, setProject] = useState(initial?.project || '');
+  const [date, setDate] = useState(ymdOfDate(st));
+  const [from, setFrom] = useState(hmOf(st));
+  const [to, setTo] = useState(hmOf(en));
+  const [note, setNote] = useState(initial?.note || '');
+  const [error, setError] = useState('');
+
+  const startAt = new Date(`${date}T${from || '00:00'}:00`);
+  let endAt = new Date(`${date}T${to || '00:00'}:00`);
+  if (endAt <= startAt) endAt = new Date(endAt.getTime() + 86400000); // ran past midnight
+  const lengthMs = endAt - startAt;
+
+  const save = e => {
+    e?.preventDefault();
+    if (!label.trim()) return setError('Say what you worked on.');
+    if (!from || !to) return setError('Pick a start and an end time.');
+    if (inFuture(endAt)) return setError('That ends in the future.');
+    const row = {
+      label: label.trim(), project: project.trim() || null, company_id: resolveCompany(source),
+      started_at: startAt.toISOString(), ended_at: endAt.toISOString(), note,
+    };
+    if (initial) { sessions.update(initial.id, row); showToast?.('success', 'Session updated', row.label); }
+    else { logSession(row); showToast?.('success', 'Time added', `${row.label} · ${formatDuration(lengthMs)}`); }
+    onClose();
+  };
+
+  const remove = () => {
+    sessions.remove(initial.id);
+    showToast?.('warning', 'Session deleted', initial.label, 6000, { label: 'Undo', onClick: () => sessions.restore(initial) });
+    onClose();
+  };
+
+  const crossesMidnight = endAt.getDate() !== startAt.getDate();
+  return (
+    <Modal open onClose={onClose} title={initial ? 'Edit session' : 'Add time'} width={460}
+      footer={<>
+        {initial && <button onClick={remove} className="btn-danger h-8 px-3 rounded-lg text-[13px] cursor-pointer mr-auto">Delete</button>}
+        <button onClick={onClose} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Cancel</button>
+        <button onClick={save} className="btn-primary h-8 px-4 rounded-lg text-[13px] cursor-pointer">{initial ? 'Save' : 'Add'}</button>
+      </>}>
+      <form onSubmit={save} className="space-y-4">
+        <Field label="What">
+          <input value={label} onChange={e => { setLabel(e.target.value); setError(''); }} placeholder="e.g. Client call, fixing the auth bug" className={inputCls} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Source">
+            <Combo value={source} onChange={setSource} placeholder="Optional" suggestions={companies.filter(c => c.active !== false).map(c => c.name)} ariaLabel="Source" inputClassName="h-9" />
+          </Field>
+          <Field label="Project">
+            <Combo value={project} onChange={setProject} placeholder="Optional" suggestions={projectOptions} ariaLabel="Project" inputClassName="h-9" />
+          </Field>
+        </div>
+        <Field label="When" hint={lengthMs > 0 ? `${formatDuration(lengthMs)}${crossesMidnight ? ' · ends the next day' : ''}` : undefined}>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+            <DateInput value={date} onChange={v => v && setDate(v)} className="w-full" />
+            <div className="flex items-center gap-2 sm:contents">
+              <TimeSelect size="md" value={from} onChange={v => { setFrom(v); setError(''); }} className="flex-1 sm:w-[108px]" />
+              <TimeSelect size="md" value={to} onChange={v => { setTo(v); setError(''); }} className="flex-1 sm:w-[108px]" />
+            </div>
+          </div>
+        </Field>
+        <Field label="Note">
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Optional" className={`${inputCls} !h-auto py-2 resize-none`} />
+        </Field>
         {error && <p className="text-[12.5px] text-rose-400">{error}</p>}
         <button type="submit" className="hidden" />
       </form>

@@ -4,14 +4,16 @@ import {
   Edit3, Trash2, Calendar, Link as LinkIcon,
   ChevronDown, ChevronRight, ListCollapse,
   Flame, Briefcase, CheckCircle2, ShieldCheck, MapPin, Globe, Star, History,
-  ListChecks, Gift
+  ListChecks, Gift, Trophy
 } from 'lucide-react';
 import { formatDate, getStatusStyles, sortApplicationsByDeadline, groupApplicationsByMonth } from '../utils/helpers';
 import { getHackathonProgress } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { ymdLocal, hostOf } from '../utils/links';
 import { PageHeader, Empty, Progress, Select, Combo, Modal } from './ui';
-import { EditorLayout, PropRow, TitleInput, DescriptionInput, DueField, LinksEditor, SectionTitle } from './editor';
+import TimerButton from './TimerButton';
+import { EditorLayout, PropRow, TitleInput, DescriptionInput, DueField, LinksEditor, SectionTitle, ComposerShell } from './editor';
+import { parseCapture, formatWhen } from '../services/nlp';
 
 /* Quiet status dot per hackathon status (labels come from getStatusStyles). */
 const STATUS_DOT = {
@@ -117,6 +119,57 @@ function CustomDropdown({ value, onChange, options, icon, placeholder }) {
   );
 }
 
+/* ─── Inline composer ──────────────────────────────────
+   "HackMIT 15 dec #MIT", "Smart India Hackathon in 2 weeks".
+   A date in the name becomes the deadline; #word becomes the organiser. */
+function HackathonComposer({ inputRef, companies, onAdd, onExpand }) {
+  const [text, setText] = useState('');
+  const [company, setCompany] = useState('');
+  const [date, setDate] = useState('');
+  const [status, setStatus] = useState('pending');
+  const [starred, setStarred] = useState(false);
+  const [link, setLink] = useState('');
+
+  const p = parseCapture(text);
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return ymdLocal(d); })();
+  const effDate = date || p.date || tomorrow;
+  const effCompany = company || (p.label ? companies.find(c => c.toLowerCase() === p.label.toLowerCase()) || p.label : '');
+  const name = (p.title || text).trim();
+
+  const reset = () => { setText(''); setCompany(''); setDate(''); setStatus('pending'); setStarred(false); setLink(''); };
+  const draft = () => ({ name, company: effCompany, date: effDate, status, starred: starred || p.priority === 'high', link: link.trim() });
+
+  const understood = (p.date || p.label) && (
+    <p className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-slate-500 mb-2 -mt-1">
+      <span className="text-accent-400">✦</span> Understood:
+      {p.date && !date && <span className="text-slate-300">deadline {formatWhen(p.date)}</span>}
+      {p.label && !company && <span className="text-slate-300">by {p.label}</span>}
+    </p>
+  );
+
+  return (
+    <ComposerShell inputRef={inputRef} icon={Trophy} value={text} onChange={setText}
+      placeholder='Add a hackathon… try "HackMIT 15 dec #MIT"'
+      onSubmit={() => { onAdd(draft()); reset(); }} onExpand={() => { onExpand(draft()); reset(); }} onCancel={reset}
+      isDirty={!!(company || date || link || starred || status !== 'pending')} submitLabel="Add hackathon" preview={understood}>
+      <Combo value={company || (p.label ?? '')} onChange={setCompany} suggestions={companies} placeholder="Organiser"
+        inputClassName="h-8 w-[140px]" ariaLabel="Organiser" />
+      <DueField compact withTime={false} date={effDate} onDate={d => setDate(d || tomorrow)} placeholder="Deadline" />
+      <Select size="sm" className="w-[130px]" value={status} onChange={setStatus} ariaLabel="Status" options={STATUS_OPTIONS} />
+      <button type="button" onClick={() => setStarred(v => !v)} aria-pressed={starred}
+        className={`h-8 px-2.5 rounded-lg text-[12.5px] border inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+          starred || p.priority === 'high' ? 'text-amber-300 border-amber-400/30 bg-amber-400/[0.07]' : 'text-slate-400 border-white/[0.08] hover:text-slate-100'}`}>
+        <Star size={12} fill={starred || p.priority === 'high' ? 'currentColor' : 'none'} /> Starred
+      </button>
+      <div className="flex items-center gap-1 flex-1 min-w-[160px]">
+        <LinkIcon size={13} className="text-slate-500 shrink-0" />
+        <input value={link} onChange={e => setLink(e.target.value)} placeholder="Event link (optional)" aria-label="Event link"
+          className="flex-1 min-w-0 h-8 bg-transparent text-[12.5px] text-slate-200 placeholder:text-slate-600 outline-none" />
+      </div>
+    </ComposerShell>
+  );
+}
+
 export default function TimelineView({ 
   applications, 
   onAdd, 
@@ -201,7 +254,29 @@ export default function TimelineView({
 
   const rootRef = useRef(null);
   const searchRef = useRef(null);
-  useShortcutHooks({ onNew: handleOpenAdd, searchRef, rootRef });
+  const composerRef = useRef(null);
+  // N goes to the inline composer; the header button opens the full editor.
+  useShortcutHooks({ onNew: () => composerRef.current?.focus(), searchRef, rootRef });
+
+  const deadlineFrom = ymd => {
+    const [dy, dm, dd] = ymd.split('-').map(Number);
+    const d = new Date(dy, dm - 1, dd);
+    d.setHours(12, 0, 0, 0); // same convention as the full editor
+    return d.toISOString();
+  };
+  const quickAdd = async d => {
+    await onAdd({
+      name: d.name, company: d.company || '', link: d.link || '', links: [],
+      deadline: deadlineFrom(d.date), priority: d.starred ? 'high' : 'medium', status: d.status || 'pending',
+      notes: '', ppi: false, travel: false, onsite: false, remote: false,
+    });
+  };
+  const expandDraft = d => {
+    resetForm();
+    setFormName(d.name || ''); setFormCompany(d.company || ''); setFormDate(d.date);
+    setFormStatus(d.status || 'pending'); setFormStarred(!!d.starred); setFormLink(d.link || '');
+    setIsFormOpen(true);
+  };
 
   const handleOpenEdit = (app) => {
     setEditingApp(app);
@@ -398,6 +473,7 @@ export default function TimelineView({
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1100px] mx-auto px-4 lg:px-6 py-6 space-y-6 reveal-stagger">
+          <HackathonComposer inputRef={composerRef} companies={companySuggestions} onAdd={quickAdd} onExpand={expandDraft} />
 
           {/* Toolbar */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
@@ -808,6 +884,8 @@ function HackathonCard({ app, isNearest, onEdit, onDelete, onViewDetails, onUpda
                 title={isStarred ? "Unstar hackathon" : "Star hackathon"}>
                 <Star size={13} className={isStarred ? 'fill-amber-400' : ''} />
               </button>
+
+              <TimerButton label={app.name} project={app.name} />
 
               {app.link && (
                 <a href={app.link} target="_blank" rel="noreferrer"
