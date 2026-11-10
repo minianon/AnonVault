@@ -1,32 +1,34 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  Search, CornerDownLeft, Plus, CalendarRange, Lightbulb,
-  CheckSquare, Rocket, Quote, LayoutDashboard, BarChart3, ArrowRight, Hash
+  Search, CornerDownLeft, Plus, CalendarRange, Lightbulb, CheckSquare, KanbanSquare,
+  ArrowRight, Play, Wallet, Square,
 } from 'lucide-react';
-
-/* Every section, so the palette doubles as navigation. */
-const SECTIONS = [
-  { tab: 'dashboard',     label: 'Dashboard',         icon: LayoutDashboard, accent: '#38bdf8' },
-  { tab: 'tasks',         label: 'Daily Checklist',   icon: CheckSquare,     accent: '#38bdf8' },
-  { tab: 'timeline',      label: 'Hackathon Timeline', icon: CalendarRange,  accent: '#34d399' },
-  { tab: 'ideas',         label: 'Idea Vault',        icon: Lightbulb,       accent: '#fbbf24' },
-  { tab: 'project-ideas', label: 'Project Ideas',     icon: Rocket,          accent: '#818cf8' },
-  { tab: 'review',        label: 'Review',            icon: BarChart3,       accent: '#a78bfa' },
-  { tab: 'quotes',        label: 'Quotes Vault',      icon: Quote,           accent: '#f472b6' },
-  { tab: 'tags',          label: 'Tags',              icon: Hash,            accent: '#818cf8' },
-];
+import { NAV } from '../nav';
+import { startSession, stopAll, sessions, isRunning } from '../services/focus';
+import { transactions, formatMoney, ymd } from '../services/money';
 
 const KIND_META = {
-  task:     { icon: CheckSquare,   accent: '#38bdf8', label: 'Task'     },
-  hackathon:{ icon: CalendarRange, accent: '#34d399', label: 'Hackathon'},
-  idea:     { icon: Lightbulb,     accent: '#fbbf24', label: 'Idea'     },
-  project:  { icon: Rocket,        accent: '#818cf8', label: 'Concept'  },
-  quote:    { icon: Quote,         accent: '#f472b6', label: 'Quote'    },
-  section:  { icon: ArrowRight,    accent: '#94a3b8', label: 'Go to'    },
-  action:   { icon: Plus,          accent: '#34d399', label: 'Create'   },
+  task:      { icon: CheckSquare,   label: 'Task' },
+  hackathon: { icon: CalendarRange, label: 'Hackathon' },
+  idea:      { icon: Lightbulb,     label: 'Idea' },
+  project:   { icon: KanbanSquare,  label: 'Board' },
+  section:   { icon: ArrowRight,    label: 'Go to' },
+  action:    { icon: Plus,          label: 'Create' },
+  timer:     { icon: Play,          label: 'Focus' },
+  stop:      { icon: Square,        label: 'Focus' },
+  money:     { icon: Wallet,        label: 'Money' },
 };
 
 const norm = v => (v || '').toString().toLowerCase();
+
+/* "250 lunch", "₹1,200 rent", "120.5 uber" → { amount, note } */
+function parseExpense(q) {
+  const m = q.trim().match(/^[₹$€£]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(.*)$/);
+  if (!m) return null;
+  const amount = parseFloat(m[1].replace(/,/g, ''));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return { amount, note: m[2].trim() };
+}
 
 export default function CommandPalette({
   open,
@@ -34,8 +36,7 @@ export default function CommandPalette({
   tasks,
   applications,
   ideas,
-  projectIdeas,
-  quotes,
+  boardItems,
   setActiveTab,
   onSelectIdea,
   onSelectProject,
@@ -47,98 +48,102 @@ export default function CommandPalette({
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const running = sessions.useAll().filter(isRunning);
 
-  // Reset on each open so it never reopens mid-search.
   useEffect(() => {
     if (!open) return;
     // Deliberate reset so the palette never reopens mid-search.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery('');
     setCursor(0);
-    const t = setTimeout(() => inputRef.current?.focus(), 30);
+    const t = setTimeout(() => inputRef.current?.focus(), 20);
     return () => clearTimeout(t);
   }, [open]);
 
   const results = useMemo(() => {
-    const q = norm(query).trim();
+    const raw = query.trim();
+    const q = norm(raw);
 
-    // With no query, offer the sections rather than dumping every record.
     if (!q) {
-      return SECTIONS.map(s => ({
-        kind: 'section', id: 'sec-' + s.tab, title: s.label, tab: s.tab,
-      }));
+      const out = [
+        { kind: 'timer', id: 'hint-timer', title: 'Start a timer…', hint: true, group: 'Quick actions' },
+        { kind: 'money', id: 'hint-money', title: 'Log an expense…', hint: true, group: 'Quick actions', sub: 'Type an amount, e.g. 250 lunch' },
+      ];
+      if (running.length) out.push({ kind: 'stop', id: 'stop-all', title: `Stop ${running.length} running timer${running.length === 1 ? '' : 's'}`, group: 'Quick actions' });
+      NAV.forEach((s, i) => out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate', shortcut: String(i + 1) }));
+      return out;
     }
 
     const hit = (...fields) => fields.some(f => norm(f).includes(q));
     const out = [];
+    const expense = parseExpense(raw);
+
+    if (expense) {
+      out.push({ kind: 'money', id: 'log-expense', group: 'Actions', expense,
+        title: `Log expense ${formatMoney(expense.amount)}${expense.note ? ` · ${expense.note}` : ''}` });
+    }
 
     for (const t of tasks || []) {
-      if (t && hit(t.title)) {
-        out.push({ kind: 'task', id: 't-' + t.id, title: t.title, tab: 'tasks',
-          meta: t.is_recurring ? t.recurrence : 'one-off' });
-      }
+      if (t && hit(t.title)) out.push({ kind: 'task', id: 't-' + t.id, title: t.title, tab: 'tasks', group: 'Results', meta: t.is_recurring ? t.recurrence : 'today' });
     }
     for (const a of applications || []) {
-      if (a && hit(a.name, a.company, a.notes)) {
-        out.push({ kind: 'hackathon', id: 'h-' + a.id, title: a.name, tab: 'timeline',
-          meta: a.company || undefined, selectId: a.id });
-      }
+      if (a && hit(a.name, a.company, a.notes)) out.push({ kind: 'hackathon', id: 'h-' + a.id, title: a.name, tab: 'timeline', group: 'Results', meta: a.company || undefined, selectId: a.id });
+    }
+    for (const p of boardItems || []) {
+      if (p && hit(p.title, p.description, p.label)) out.push({ kind: 'project', id: 'b-' + p.id, title: p.title, tab: 'board', group: 'Results', meta: p.label || p.status });
     }
     for (const i of ideas || []) {
-      if (i && hit(i.title, i.content, (i.tags || []).join(' '))) {
-        out.push({ kind: 'idea', id: 'i-' + i.id, title: i.title, tab: 'ideas',
-          meta: (i.tags || [])[0], selectId: i.id });
-      }
+      if (i && hit(i.title, i.content, (i.tags || []).join(' '))) out.push({ kind: 'idea', id: 'i-' + i.id, title: i.title, tab: 'ideas', group: 'Results', meta: (i.tags || [])[0], selectId: i.id });
     }
-    for (const p of projectIdeas || []) {
-      if (p && hit(p.title, p.content, (p.tags || []).join(' '))) {
-        out.push({ kind: 'project', id: 'p-' + p.id, title: p.title, tab: 'project-ideas',
-          meta: p.status || undefined, selectId: p.id });
-      }
-    }
-    for (const qt of quotes || []) {
-      if (qt && hit(qt.text, qt.author, qt.category)) {
-        out.push({ kind: 'quote', id: 'q-' + qt.id, title: qt.text, tab: 'quotes',
-          meta: qt.author || undefined });
-      }
-    }
-    for (const s of SECTIONS) {
-      if (hit(s.label)) {
-        out.push({ kind: 'section', id: 'sec-' + s.tab, title: s.label, tab: s.tab });
-      }
+    for (const s of NAV) {
+      if (hit(s.label)) out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate' });
     }
 
-    // Capture actions last, so typing a search term never steals Enter from a
-    // real match — but they are always reachable, which is the point: adding
-    // something should not require navigating to its section first.
-    out.push({ kind: 'action', id: 'new-task', title: `Add task “${query.trim()}”`, action: 'task' });
-    out.push({ kind: 'action', id: 'new-idea', title: `Add idea “${query.trim()}”`, action: 'idea' });
+    // Create actions last, so a search term never steals Enter from a real match.
+    if (!expense) out.push({ kind: 'timer', id: 'start-timer', title: `Start timer “${raw}”`, group: 'Actions' });
+    out.push({ kind: 'action', id: 'new-task', title: `Add task “${raw}”`, action: 'task', group: 'Actions' });
+    out.push({ kind: 'action', id: 'new-idea', title: `Save idea “${raw}”`, action: 'idea', group: 'Actions' });
 
     return out.slice(0, 40);
-  }, [query, tasks, applications, ideas, projectIdeas, quotes]);
+  }, [query, tasks, applications, ideas, boardItems, running.length]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setCursor(0); }, [query]);
 
   const run = useCallback(item => {
     if (!item) return;
-    if (item.kind === 'action') {
-      if (item.action === 'task') onQuickAddTask?.(query.trim());
-      if (item.action === 'idea') onQuickAddIdea?.(query.trim());
+    const raw = query.trim();
+    if (item.hint) {
+      if (item.kind === 'money') setActiveTab('money');
+      else { setActiveTab('focus'); }
       onClose();
+      setTimeout(() => window.dispatchEvent(new CustomEvent('anonvault:new')), 60);
       return;
     }
-    if (item.selectId) {
-      if (item.kind === 'idea') onSelectIdea?.(item.selectId);
-      else if (item.kind === 'project') onSelectProject?.(item.selectId);
-      else if (item.kind === 'hackathon') onSelectHackathon?.(item.selectId);
-      else setActiveTab(item.tab);
-    } else {
-      setActiveTab(item.tab);
+    switch (item.kind) {
+      case 'action':
+        if (item.action === 'task') onQuickAddTask?.(raw);
+        if (item.action === 'idea') onQuickAddIdea?.(raw);
+        break;
+      case 'timer':
+        startSession({ label: raw });
+        break;
+      case 'stop':
+        stopAll();
+        break;
+      case 'money':
+        transactions.add({ type: 'expense', amount: item.expense.amount, category: 'other', note: item.expense.note, method: 'upi', date: ymd() });
+        break;
+      default:
+        if (item.selectId) {
+          if (item.kind === 'idea') onSelectIdea?.(item.selectId);
+          else if (item.kind === 'project') onSelectProject?.(item.selectId);
+          else if (item.kind === 'hackathon') onSelectHackathon?.(item.selectId);
+          else setActiveTab(item.tab);
+        } else setActiveTab(item.tab);
     }
     onClose();
-  }, [query, onClose, setActiveTab, onSelectIdea, onSelectProject, onSelectHackathon,
-      onQuickAddTask, onQuickAddIdea]);
+  }, [query, onClose, setActiveTab, onSelectIdea, onSelectProject, onSelectHackathon, onQuickAddTask, onQuickAddIdea]);
 
   const onKeyDown = e => {
     if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
@@ -154,90 +159,67 @@ export default function CommandPalette({
     }
   };
 
-  // Keep the cursor row in view when arrowing past the fold.
   useEffect(() => {
-    const el = listRef.current?.querySelector(`[data-row="${cursor}"]`);
-    el?.scrollIntoView({ block: 'nearest' });
+    listRef.current?.querySelector(`[data-row="${cursor}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
 
   if (!open) return null;
 
+  let lastGroup = null;
   return (
-    <div
-      className="modal-overlay fixed inset-0 z-[70] flex items-start justify-center px-4 pt-[12vh]"
-      onClick={onClose}
-    >
-      <div
-        className="modal-surface w-full max-w-xl rounded-2xl flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Query */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/[0.06]">
+    <div className="modal-overlay fixed inset-0 z-[70] flex items-start justify-center px-4 pt-[14vh]" onMouseDown={onClose}>
+      <div className="modal-surface w-full max-w-[580px] rounded-xl flex flex-col overflow-hidden" onMouseDown={e => e.stopPropagation()}
+        role="dialog" aria-label="Command palette">
+        <div className="flex items-center gap-3 px-4 h-12 border-b border-white/[0.06]">
           <Search size={15} className="text-slate-500 shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search everything, or type to add…"
-            className="flex-1 bg-transparent border-none outline-none text-[14px] text-slate-100 placeholder:text-slate-600 font-medium"
+            placeholder="Search, jump, or type “250 lunch” to log an expense…"
+            className="flex-1 bg-transparent outline-none text-[14px] text-slate-100 placeholder:text-slate-500"
+            aria-label="Command"
           />
-          <kbd className="text-[9.5px] font-bold text-slate-600 px-1.5 py-0.5 rounded-md border border-white/[0.08] bg-white/[0.03] shrink-0">
-            ESC
-          </kbd>
+          <span className="kbd">Esc</span>
         </div>
 
-        {/* Results */}
-        <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1.5 custom-scrollbar">
+        <div ref={listRef} className="max-h-[52vh] overflow-y-auto p-1.5">
           {results.length === 0 ? (
-            <p className="px-4 py-8 text-center text-[12.5px] text-slate-600 font-medium">
-              Nothing matches “{query}”.
-            </p>
+            <p className="px-4 py-8 text-center text-[13px] text-slate-500">Nothing matches “{query}”.</p>
           ) : results.map((r, idx) => {
             const meta = KIND_META[r.kind];
             const Icon = meta.icon;
-            const activeRow = idx === cursor;
+            const active = idx === cursor;
+            const header = r.group !== lastGroup ? r.group : null;
+            lastGroup = r.group;
             return (
-              <button
-                key={r.id}
-                data-row={idx}
-                onClick={() => run(r)}
-                onMouseEnter={() => setCursor(idx)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left cursor-pointer transition-colors ${
-                  activeRow ? 'bg-white/[0.055]' : 'hover:bg-white/[0.03]'
-                }`}
-              >
-                <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: meta.accent + '1c', border: '1px solid ' + meta.accent + '33' }}>
-                  <Icon size={11} style={{ color: meta.accent }} />
-                </div>
-                <span className="flex-1 min-w-0 text-[13px] font-semibold text-slate-200 truncate">
-                  {r.title}
-                </span>
-                {r.meta && (
-                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-700 shrink-0 hidden sm:inline">
-                    {r.meta}
+              <div key={r.id}>
+                {header && <p className="px-2.5 pt-2.5 pb-1.5 text-[11.5px] font-medium text-slate-500">{header}</p>}
+                <button
+                  data-row={idx}
+                  onClick={() => run(r)}
+                  onMouseMove={() => cursor !== idx && setCursor(idx)}
+                  className={`w-full flex items-center gap-3 px-2.5 h-10 rounded-lg text-left cursor-pointer ${active ? 'bg-white/[0.07]' : ''}`}>
+                  <Icon size={15} className={active ? 'text-slate-200' : 'text-slate-500'} />
+                  <span className="flex-1 min-w-0 text-[13.5px] text-slate-200 truncate">
+                    {r.title}
+                    {r.sub && <span className="text-slate-500 ml-2 text-[12.5px]">{r.sub}</span>}
                   </span>
-                )}
-                <span className="text-[9.5px] font-bold uppercase tracking-wider shrink-0"
-                  style={{ color: meta.accent + 'b0' }}>
-                  {meta.label}
-                </span>
-                {activeRow && <CornerDownLeft size={11} className="text-slate-600 shrink-0" />}
-              </button>
+                  {r.meta && <span className="text-[12px] text-slate-500 shrink-0 hidden sm:inline capitalize">{r.meta}</span>}
+                  {r.shortcut ? <span className="kbd">{r.shortcut}</span>
+                    : <span className="text-[12px] text-slate-600 shrink-0">{meta.label}</span>}
+                  {active && <CornerDownLeft size={13} className="text-slate-500 shrink-0" />}
+                </button>
+              </div>
             );
           })}
         </div>
 
-        {/* Hints */}
-        <div className="flex items-center gap-4 px-4 py-2.5 border-t border-white/[0.06] text-[9.5px] font-bold uppercase tracking-wider text-slate-700">
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1 py-0.5 rounded border border-white/[0.08] bg-white/[0.03]">↑↓</kbd> move
-          </span>
-          <span className="flex items-center gap-1.5">
-            <kbd className="px-1 py-0.5 rounded border border-white/[0.08] bg-white/[0.03]">↵</kbd> open
-          </span>
-          <span className="ml-auto text-slate-800">{results.length} result{results.length === 1 ? '' : 's'}</span>
+        <div className="flex items-center gap-4 px-4 h-10 border-t border-white/[0.06] text-[12px] text-slate-500">
+          <span className="flex items-center gap-1.5"><span className="kbd">↑</span><span className="kbd">↓</span> Navigate</span>
+          <span className="flex items-center gap-1.5"><span className="kbd">↵</span> Open</span>
+          <span className="ml-auto hidden sm:flex items-center gap-1.5"><span className="kbd">N</span> New in section</span>
         </div>
       </div>
     </div>

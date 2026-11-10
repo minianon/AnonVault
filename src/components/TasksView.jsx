@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Plus, Trash2, Edit3, X, ChevronDown,
-  Check, Sun, Moon, RotateCcw,
+  Plus, Trash2, Edit3, X, ChevronDown, Check, RotateCcw,
   ChevronLeft, ChevronRight as ChevronRightIcon, Repeat2,
-  ListChecks, Sparkles, Minus, ArrowDown, EyeOff, Lock, Menu, CheckCheck, CalendarRange
+  ListChecks, EyeOff, CheckCheck, CalendarRange, NotebookPen
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, addTask, updateTask, deleteTask,
@@ -11,7 +10,7 @@ import {
 } from '../services/tasks';
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { getNote, setNote } from '../services/journal';
-import { NotebookPen } from 'lucide-react';
+import { PageHeader, Card, CardHeader, Empty, Progress, inputCls, Select } from './ui';
 
 /* ── helpers ───────────────────────────────────────────── */
 function toDateStr(date) {
@@ -39,246 +38,192 @@ function formatDayFull(dateStr) {
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const PRIORITY_META  = {
-  high:   { label: 'High',   color: 'text-rose-400',   bg: 'bg-rose-500/10',   border: 'border-rose-500/25',  dot: 'bg-rose-400',   cardBorder: 'border-rose-500/35', glowClass: 'glow-high'   },
-  medium: { label: 'Medium', color: 'text-amber-400',  bg: 'bg-amber-500/10',  border: 'border-amber-500/25', dot: 'bg-amber-400',  cardBorder: 'border-amber-500/30', glowClass: 'glow-medium' },
-  low:    { label: 'Low',    color: 'text-slate-400',  bg: 'bg-white/[0.04]',  border: 'border-white/[0.08]', dot: 'bg-slate-500',  cardBorder: 'border-white/[0.08]', glowClass: ''  },
+  high:   { label: 'High',   dot: 'bg-rose-400'  },
+  medium: { label: 'Medium', dot: 'bg-amber-400' },
+  low:    { label: 'Low',    dot: 'bg-slate-600' },
 };
+
+const RECUR_SHORT = { daily: 'Daily', weekdays: 'Weekdays', weekends: 'Weekends' };
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const RECUR_OPTS = [
-  { value: 'daily',    label: 'Every Day'         },
+  { value: 'daily',    label: 'Every day'          },
   { value: 'weekdays', label: 'Weekdays (Mon–Fri)' },
   { value: 'weekends', label: 'Weekends (Sat–Sun)' },
-  { value: 'weekly',   label: 'Weekly (Custom)'   }
+  { value: 'weekly',   label: 'Weekly (custom)'    }
 ];
 
 /* ── Checkbox ────────────────────────────────────────────── */
 function Checkbox({ checked, onChange, size = 'md', disabled = false }) {
-  const sz = size === 'sm' ? 'w-[18px] h-[18px]' : 'w-[22px] h-[22px]';
+  const small = size === 'sm';
+  const sz = small ? 'w-[15px] h-[15px] rounded-[4px]' : 'w-[17px] h-[17px] rounded-[5px]';
   return (
     <button
       type="button"
+      role="checkbox"
+      aria-checked={checked}
       disabled={disabled}
       onClick={e => { e.stopPropagation(); if (!disabled) onChange(); }}
-      className={`${sz} rounded-lg flex items-center justify-center flex-shrink-0
-        transition-all duration-300 select-none focus:outline-none relative overflow-hidden
-        ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
-        ${checked
-          ? 'text-emerald-400'
-          : disabled ? '' : 'hover:border-violet-500/50 hover:bg-violet-500/[0.05]'
-        }`}
-      style={{
-        background: checked
-          ? 'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(16,185,129,0.1) 100%)'
-          : 'rgba(255,255,255,0.025)',
-        border: checked
-          ? '1px solid rgba(16,185,129,0.5)'
-          : '1px solid rgba(100,116,139,0.35)',
-        boxShadow: checked ? '0 0 14px rgba(16,185,129,0.25), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
-      }}
+      className={`${sz} shrink-0 flex items-center justify-center border transition-colors duration-150 ${
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+      } ${
+        checked ? 'bg-slate-100 border-slate-100 text-slate-950' : 'border-white/[0.22] hover:border-white/[0.45] bg-transparent'
+      }`}
     >
-      {/* Fill shimmer on check */}
-      {checked && (
-        <span className="absolute inset-0 pointer-events-none"
-          style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 60%)' }}
-        />
-      )}
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="w-[58%] h-[58%]"
-        style={{
-          opacity: checked ? 1 : 0,
-          transform: checked ? 'scale(1)' : 'scale(0.5)',
-          transition: 'opacity 0.25s ease, transform 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-          filter: checked ? 'drop-shadow(0 0 3px rgba(16,185,129,0.6))' : 'none',
-        }}
-      >
-        <polyline
-          points="20 6 9 17 4 12"
-          className="checkbox-draw-path"
-          style={{ strokeDashoffset: checked ? 0 : 20 }}
-        />
-      </svg>
+      <Check size={small ? 10 : 11} strokeWidth={3}
+        style={{ opacity: checked ? 1 : 0, transform: checked ? 'scale(1)' : 'scale(0.6)', transition: 'all .18s var(--ease)' }} />
     </button>
   );
 }
 
-/* ── Task card with linktree thread ─────────────────────── */
-function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, index = 0, hackathonName }) {
+/* ── Task row ────────────────────────────────────────────── */
+function TaskCard({ task, onToggle, onToggleSub, onEdit, onDelete, onCancel, hackathonName }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasSubtasks  = task.subtasks && task.subtasks.length > 0;
   const completedSubs = hasSubtasks ? task.subtasks.filter(s => s.completed).length : 0;
   const allSubsDone  = hasSubtasks && completedSubs === task.subtasks.length;
   const p            = PRIORITY_META[task.priority] || PRIORITY_META.low;
   const showThread   = hasSubtasks && !collapsed;
+  const hasMeta      = hasSubtasks || task.is_recurring || hackathonName;
 
   return (
-    <div
-      className={`relative rounded-2xl overflow-hidden group
-        glass-card border ${p.cardBorder} ${
-          task.completed ? 'opacity-50 scale-[0.99] border-white/[0.04]' : (
-            task.priority === 'high' ? p.glowClass : ''
-          )
-        }`}
-      style={{ animationDelay: `${index * 55}ms` }}
-    >
+    <li className="group">
+      <div className="flex items-center gap-3 px-4 min-h-[44px] py-2 hover:bg-white/[0.02] transition-colors">
+        <Checkbox
+          checked={task.completed}
+          onChange={() => onToggle(task)}
+          disabled={false}
+        />
 
-      {/* ── Main task row ── */}
-      <div className="flex items-start gap-0 p-4 pb-0">
+        <div className="flex-1 min-w-0">
+          <span title={task.title}
+            className={`block text-[13.5px] leading-snug truncate strikethrough-draw ${
+              task.completed ? 'strikethrough-completed' : 'text-slate-200'
+            }`}>
+            {task.title}
+          </span>
 
-        {/* Left: checkbox */}
-        <div className="mr-3 shrink-0 mt-0.5">
-          <Checkbox
-            checked={task.completed}
-            onChange={() => onToggle(task)}
-            disabled={false}
-          />
-        </div>
-
-        {/* Right: task title + meta + actions */}
-        <div className="flex-1 min-w-0 pb-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <span className={`inline-block text-[14px] font-semibold leading-snug strikethrough-draw transition-all ${
-                task.completed ? 'strikethrough-completed text-slate-500' : 'text-white'
-              }`}>
-                {task.title}
-              </span>
-              {/* Subtask progress summary */}
+          {hasMeta && (
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-0.5 text-[11.5px] text-slate-500 min-w-0">
               {hasSubtasks && (
-                <div className="flex items-center gap-2 mt-1.5">
-                  <div className="w-20 h-[3px] bg-white/[0.06] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        allSubsDone ? 'bg-emerald-500' : p.dot.replace('bg-', 'bg-')
-                      }`}
-                      style={{ width: `${(completedSubs / task.subtasks.length) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-600 font-medium tabular-nums">
+                <button
+                  onClick={e => { e.stopPropagation(); setCollapsed(c => !c); }}
+                  className="inline-flex items-center gap-1 tabular-nums hover:text-slate-300 transition-colors cursor-pointer"
+                  title={collapsed ? 'Expand' : 'Collapse'}
+                >
+                  <span className={allSubsDone ? 'text-emerald-400' : ''}>
                     {completedSubs}/{task.subtasks.length} subtasks
                   </span>
-                  <button
-                    onClick={e => { e.stopPropagation(); setCollapsed(c => !c); }}
-                    className="text-slate-700 hover:text-slate-400 transition-colors cursor-pointer"
-                    title={collapsed ? 'Expand' : 'Collapse'}
-                  >
-                    <ChevronDown size={11} className={`transition-transform ${collapsed ? '-rotate-90' : ''}`} />
-                  </button>
-                </div>
+                  <ChevronDown size={12} className={`transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                </button>
               )}
-            </div>
-
-            {/* Badges + Action buttons — always show badges, actions appear on hover */}
-            <div className="flex items-center gap-1 shrink-0 mt-0.5">
+              {task.is_recurring && (
+                <span className="inline-flex items-center gap-1">
+                  <Repeat2 size={11} />
+                  {RECUR_SHORT[task.recurrence] || 'Weekly'}
+                </span>
+              )}
               {/* Which hackathon this step belongs to */}
               {hackathonName && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded-full
-                  bg-emerald-500/[0.09] text-emerald-300/90 border border-emerald-500/25 max-w-[150px]">
-                  <CalendarRange size={8} className="shrink-0" />
+                <span className="inline-flex items-center gap-1 min-w-0 max-w-[180px]">
+                  <CalendarRange size={11} className="shrink-0" />
                   <span className="truncate">{hackathonName}</span>
                 </span>
               )}
-
-              {/* Priority badge */}
-              {task.priority !== 'low' && (
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
-                  text-[9px] font-bold border ${p.bg} ${p.border} ${p.color}`}>
-
-                  {p.label}
-                </span>
-              )}
-              {/* Recurring badge */}
-              {task.is_recurring && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full
-                  text-[9px] font-bold bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                  <Repeat2 size={8} />
-                  {task.recurrence === 'daily'    ? 'Daily'    :
-                   task.recurrence === 'weekdays' ? 'Weekdays' :
-                   task.recurrence === 'weekends' ? 'Weekends' : 'Weekly'}
-                </span>
-              )}
-              {/* Edit / Delete — visible on hover */}
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={e => { e.stopPropagation(); onCancel(task); }}
-                  className="p-1.5 text-slate-650 hover:text-amber-400 rounded-lg hover:bg-amber-500/[0.08] transition-all cursor-pointer"
-                  title="Cancel for today"
-                >
-                  <EyeOff size={12} />
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); onEdit(task); }}
-                  className="p-1.5 text-slate-600 hover:text-indigo-400 rounded-lg hover:bg-indigo-500/[0.08] transition-all cursor-pointer"
-                  title="Edit"
-                >
-                  <Edit3 size={12} />
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); onDelete(task); }}
-                  className="p-1.5 text-slate-600 hover:text-rose-400 rounded-lg hover:bg-rose-500/[0.08] transition-all cursor-pointer"
-                  title="Delete"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
             </div>
-          </div>
+          )}
         </div>
+
+        {/* Row actions — always visible on touch, on hover from sm up */}
+        <div className="flex items-center shrink-0 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <button
+            onClick={e => { e.stopPropagation(); onCancel(task); }}
+            className="icon-btn !w-7 !h-7 hover:!text-amber-400 cursor-pointer"
+            title="Cancel for today"
+            aria-label="Cancel for today"
+          >
+            <EyeOff size={13} />
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onEdit(task); }}
+            className="icon-btn !w-7 !h-7 cursor-pointer"
+            title="Edit"
+            aria-label="Edit"
+          >
+            <Edit3 size={13} />
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(task); }}
+            className="icon-btn !w-7 !h-7 hover:!text-rose-400 cursor-pointer"
+            title="Delete"
+            aria-label="Delete"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+
+        {/* Priority — quiet dot, label from sm up */}
+        <span className="flex items-center gap-1.5 shrink-0 sm:w-[64px]" title={`${p.label} priority`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${p.dot}`} />
+          <span className="hidden sm:inline text-[12px] text-slate-500">{p.label}</span>
+        </span>
       </div>
 
       {/* ── Subtask list ── */}
       {showThread && (
-        <div className="pb-3 pl-9 pr-4 space-y-1.5">
+        <ul className="pl-11 pr-4 pb-2 space-y-0.5 fade-up">
           {task.subtasks.map(st => (
-            <div key={st.id} className="flex items-center gap-2">
+            <li key={st.id} className="flex items-center gap-2.5 min-h-[28px]">
               <Checkbox
                 checked={st.completed}
                 onChange={() => onToggleSub(task, st.id)}
                 size="sm"
               />
-              <span className={`inline-block text-[12.5px] leading-snug strikethrough-draw transition-all ${
-                st.completed ? 'strikethrough-completed text-slate-500' : 'text-slate-300'
+              <span className={`min-w-0 truncate text-[12.5px] strikethrough-draw ${
+                st.completed ? 'strikethrough-completed' : 'text-slate-300'
               }`}>
                 {st.title}
               </span>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
-    </div>
+    </li>
   );
 }
 
 /* ── Priority selector ───────────────────────────────────── */
 function PrioritySelector({ value, onChange }) {
-  const opts = [
-    { value: 'high',   label: 'High',   icon: null,                active: 'bg-rose-500/15 border-rose-500/40 text-rose-300',   base: 'text-slate-500 border-white/[0.07] hover:border-rose-500/25 hover:text-rose-400'   },
-    { value: 'medium', label: 'Medium', icon: <Minus size={11} />,    active: 'bg-amber-500/15 border-amber-500/40 text-amber-300', base: 'text-slate-500 border-white/[0.07] hover:border-amber-500/25 hover:text-amber-400' },
-    { value: 'low',    label: 'Low',    icon: <ArrowDown size={11} />, active: 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300', base: 'text-slate-500 border-white/[0.07] hover:border-indigo-500/25 hover:text-indigo-400' },
-  ];
+  const opts = ['high', 'medium', 'low'];
   return (
-    <div className="flex gap-2">
-      {opts.map(o => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
-            text-[12px] font-semibold transition-all cursor-pointer border
-            ${value === o.value ? o.active : `bg-white/[0.025] ${o.base}`}`}
-        >
-          {o.icon}{o.label}
-        </button>
-      ))}
+    <div className="grid grid-cols-3 p-0.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+      {opts.map(key => {
+        const meta = PRIORITY_META[key];
+        const active = value === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChange(key)}
+            className={`h-8 px-3 rounded-md inline-flex items-center justify-center gap-2 text-[13px] font-medium transition-colors cursor-pointer ${
+              active ? 'bg-white/[0.09] text-slate-100 shadow-[0_1px_2px_rgba(0,0,0,0.4)]' : 'text-slate-500 hover:text-slate-200'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+            {meta.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
+
+function FieldLabel({ children }) {
+  return <span className="block text-[12px] font-medium text-slate-400 mb-1.5">{children}</span>;
+}
+
+const CHOICE_ON  = 'border-white/[0.16] bg-white/[0.07] text-slate-100';
+const CHOICE_OFF = 'border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]';
 
 /* ── Task Form Modal ─────────────────────────────────────── */
 function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, showToast, applications }) {
@@ -339,79 +284,72 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="modal-surface w-full max-w-lg rounded-2xl flex flex-col overflow-hidden max-h-[92vh]"
+      <div className="modal-surface w-full max-w-lg rounded-xl flex flex-col overflow-hidden max-h-[92vh]"
            onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="px-6 py-5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
-          <div>
-            <h3 className="text-[15px] font-bold text-white">{editingTask ? 'Edit Task' : 'New Task'}</h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">{editingTask ? 'Update task details' : 'Add to your checklist'}</p>
-          </div>
-          <button onClick={onClose} className="btn-ghost p-2 rounded-lg cursor-pointer"><X size={15} /></button>
+        <div className="flex items-center justify-between px-5 h-12 border-b border-white/[0.06] shrink-0">
+          <h2 className="text-[14px] font-semibold text-slate-100">{editingTask ? 'Edit task' : 'New task'}</h2>
+          <button onClick={onClose} className="icon-btn -mr-2 cursor-pointer" aria-label="Close"><X size={15} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
           {/* Title */}
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Task Title <span className="text-rose-400">*</span>
-            </label>
+          <label className="block">
+            <FieldLabel>Title <span className="text-rose-400">*</span></FieldLabel>
             <input autoFocus type="text" placeholder="e.g. Review pull requests"
               value={title} onChange={e => setTitle(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSave()}
-              className="input-premium w-full px-4 py-2.5 text-[13px] rounded-xl font-semibold placeholder:text-slate-700" />
-          </div>
+              className={inputCls} />
+          </label>
 
           {/* Priority */}
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Priority</label>
+          <div>
+            <FieldLabel>Priority</FieldLabel>
             <PrioritySelector value={priority} onChange={setPriority} />
           </div>
 
           {/* Recurring toggle */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.025] border border-white/[0.06]">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-                <Repeat2 size={14} className="text-indigo-400" />
-              </div>
-              <div>
-                <p className="text-[13px] font-semibold text-white">Recurring Task</p>
-                <p className="text-[11px] text-slate-500">Repeats on a schedule</p>
+          <div className="flex items-center justify-between gap-3 px-3.5 py-3 rounded-lg border border-white/[0.06] bg-white/[0.02]">
+            <div className="flex items-center gap-3 min-w-0">
+              <Repeat2 size={15} className="text-slate-500 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-slate-200">Recurring task</p>
+                <p className="text-[12px] text-slate-500">Repeats on a schedule</p>
               </div>
             </div>
-            <button type="button" onClick={() => setIsRecurring(p => !p)}
-              className={`w-11 h-6 rounded-full transition-all cursor-pointer relative ${isRecurring ? 'bg-indigo-500' : 'bg-slate-700'}`}>
-              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${isRecurring ? 'left-6' : 'left-1'}`} />
+            <button type="button" role="switch" aria-checked={isRecurring} aria-label="Recurring task"
+              onClick={() => setIsRecurring(p => !p)}
+              className={`w-9 h-5 rounded-full transition-colors cursor-pointer relative shrink-0 ${isRecurring ? 'bg-accent-500' : 'bg-white/[0.12]'}`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${isRecurring ? 'left-[18px]' : 'left-0.5'}`} />
             </button>
           </div>
 
           {/* Recurring / date options */}
           {isRecurring ? (
-            <div className="space-y-3">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Frequency</label>
-              <div className="grid grid-cols-2 gap-2">
-                {RECUR_OPTS.map(opt => (
-                  <button key={opt.value} type="button" onClick={() => setRecurrence(opt.value)}
-                    className={`px-3 py-2.5 rounded-xl text-[12px] font-semibold text-left transition-all cursor-pointer border ${
-                      recurrence === opt.value
-                        ? 'bg-indigo-500/15 border-indigo-500/35 text-indigo-300'
-                        : 'bg-white/[0.025] border-white/[0.06] text-slate-400 hover:text-slate-200 hover:border-white/[0.1]'
-                    }`}>{opt.label}
-                  </button>
-                ))}
+            <div className="space-y-4">
+              <div>
+                <FieldLabel>Frequency</FieldLabel>
+                <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-2">
+                  {RECUR_OPTS.map(opt => (
+                    <button key={opt.value} type="button" onClick={() => setRecurrence(opt.value)}
+                      className={`h-9 px-3 rounded-lg text-[13px] text-left transition-colors cursor-pointer border ${
+                        recurrence === opt.value ? CHOICE_ON : CHOICE_OFF
+                      }`}>{opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               {recurrence === 'weekly' && (
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">On these days</label>
+                <div>
+                  <FieldLabel>On these days</FieldLabel>
                   <div className="flex gap-1.5 flex-wrap">
                     {DAY_LABELS.map((label, i) => (
                       <button key={i} type="button" onClick={() => toggleDay(i)}
-                        className={`w-10 h-10 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
-                          recurrenceDays.includes(i)
-                            ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
-                            : 'bg-white/[0.03] border-white/[0.06] text-slate-500 hover:text-slate-300'
+                        aria-pressed={recurrenceDays.includes(i)}
+                        className={`h-8 min-w-[40px] px-2 rounded-md text-[12px] font-medium transition-colors cursor-pointer border ${
+                          recurrenceDays.includes(i) ? CHOICE_ON : CHOICE_OFF
                         }`}>{label}
                       </button>
                     ))}
@@ -420,61 +358,53 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
               )}
             </div>
           ) : (
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Date <span className="text-rose-400">*</span>
-              </label>
+            <label className="block">
+              <FieldLabel>Date <span className="text-rose-400">*</span></FieldLabel>
               <input type="date" value={taskDate} onChange={e => setTaskDate(e.target.value)}
-                className="input-premium w-full px-4 py-2.5 text-[13px] rounded-xl font-semibold placeholder:text-slate-700 cursor-pointer" />
-            </div>
+                className={`${inputCls} cursor-pointer`} />
+            </label>
           )}
 
           {/* Hackathon link — turns a Timeline entry into a checklist owner
               (register, form team, record demo, submit) instead of the two
               sections running in parallel with no connection. */}
           {(applications || []).length > 0 && (
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                Part of a hackathon <span className="text-slate-700 font-semibold normal-case tracking-normal">(optional)</span>
-              </label>
-              <select
-                value={hackathonId}
-                onChange={e => setHackathonId(e.target.value)}
-                className="input-premium w-full px-4 py-2.5 text-[13px] rounded-xl font-semibold cursor-pointer">
-                <option value="">Not linked</option>
-                {(applications || [])
-                  .filter(a => a && a.name)
-                  .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
+            <label className="block">
+              <FieldLabel>
+                Part of a hackathon <span className="font-normal text-slate-500">(optional)</span>
+              </FieldLabel>
+              <Select className="w-full" value={hackathonId || ''} onChange={setHackathonId} ariaLabel="Linked hackathon"
+                options={[{ value: '', label: 'Not linked' },
+                  ...(applications || []).filter(a => a && a.name).map(a => ({ value: a.id, label: a.name }))]} />
+            </label>
           )}
 
           {/* Subtasks */}
-          <div className="space-y-2">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Subtasks</label>
-            <div className="space-y-1.5">
-              {subtasks.map((st, i) => (
-                <div key={st.id || i} className="flex items-center gap-2 px-3 py-2 bg-white/[0.025]
-                  border border-white/[0.06] rounded-xl group/strow">
-                  {/* mini thread dot */}
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-700 shrink-0" />
-                  <span className="text-[12.5px] text-slate-300 flex-1 min-w-0 truncate">{st.title}</span>
-                  <button type="button"
-                    onClick={() => setSubtasks(prev => prev.filter((_, idx) => idx !== i))}
-                    className="p-1 text-slate-700 hover:text-rose-400 rounded-lg hover:bg-rose-500/[0.08] transition-all cursor-pointer shrink-0"
-                    title="Delete subtask">
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              ))}
-            </div>
+          <div>
+            <FieldLabel>Subtasks</FieldLabel>
+            {subtasks.length > 0 && (
+              <ul className="mb-2 rounded-lg border border-white/[0.06] divide-y divide-white/[0.04]">
+                {subtasks.map((st, i) => (
+                  <li key={st.id || i} className="flex items-center gap-2.5 h-9 pl-3 pr-1">
+                    <span className="w-1 h-1 rounded-full bg-slate-600 shrink-0" />
+                    <span className="text-[13px] text-slate-300 flex-1 min-w-0 truncate">{st.title}</span>
+                    <button type="button"
+                      onClick={() => setSubtasks(prev => prev.filter((_, idx) => idx !== i))}
+                      className="icon-btn !w-7 !h-7 hover:!text-rose-400 cursor-pointer shrink-0"
+                      title="Delete subtask" aria-label="Delete subtask">
+                      <Trash2 size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="flex gap-2">
               <input ref={stInputRef} type="text" placeholder="Add subtask… (press Enter)"
                 value={stInput} onChange={e => setStInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSubtask())}
-                className="input-premium flex-1 px-4 py-2.5 text-[13px] rounded-xl font-medium placeholder:text-slate-700" />
+                className="input-premium flex-1 min-w-0 h-9 px-3 rounded-lg text-[13px]" />
               <button type="button" onClick={addSubtask}
-                className="btn-ghost px-3 py-2 rounded-xl text-[12px] font-semibold cursor-pointer shrink-0">
+                className="btn-ghost h-9 px-3 rounded-lg text-[13px] cursor-pointer shrink-0">
                 Add
               </button>
             </div>
@@ -482,12 +412,12 @@ function TaskFormModal({ isOpen, onClose, onSave, editingTask, defaultDate, show
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/[0.04] flex gap-3 shrink-0">
+        <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2 bg-white/[0.015] shrink-0">
           <button type="button" onClick={onClose}
-            className="btn-ghost flex-1 py-2.5 text-[13px] font-semibold rounded-xl cursor-pointer">Cancel</button>
+            className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Cancel</button>
           <button type="button" onClick={handleSave}
-            className="btn-primary flex-1 py-2.5 text-[13px] font-semibold rounded-xl cursor-pointer">
-            {editingTask ? 'Save Changes' : 'Add Task'}
+            className="btn-primary h-8 px-3 text-[13px] rounded-lg cursor-pointer">
+            {editingTask ? 'Save changes' : 'Add task'}
           </button>
         </div>
       </div>
@@ -500,47 +430,22 @@ function DeleteModal({ task, onConfirm, onClose }) {
   if (!task) return null;
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="modal-surface w-full max-w-sm rounded-2xl p-6 space-y-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
-            <Trash2 size={16} className="text-rose-400" />
-          </div>
-          <div>
-            <h3 className="text-[14px] font-bold text-white">Delete Task</h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">This cannot be undone</p>
-          </div>
+      <div className="modal-surface w-full max-w-sm rounded-xl overflow-hidden">
+        <div className="p-5 space-y-2">
+          <h2 className="text-[14px] font-semibold text-slate-100">Delete task</h2>
+          <p className="text-[13px] text-slate-400 leading-relaxed">
+            Delete <span className="text-slate-100 font-medium">"{task.title}"</span>?
+            {task.is_recurring && ' This removes the recurring task and all its history.'}
+            {' '}This cannot be undone.
+          </p>
         </div>
-        <p className="text-[13px] text-slate-400 leading-relaxed">
-          Delete <span className="text-white font-semibold">"{task.title}"</span>?
-          {task.is_recurring && ' This removes the recurring task and all its history.'}
-        </p>
-        <div className="flex gap-3">
+        <div className="px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2 bg-white/[0.015]">
           <button onClick={onClose}
-            className="btn-ghost flex-1 py-2.5 text-[13px] font-semibold rounded-xl cursor-pointer">Keep It</button>
+            className="btn-ghost h-8 px-3 text-[13px] rounded-lg cursor-pointer">Keep it</button>
           <button onClick={onConfirm}
-            className="btn-danger flex-1 py-2.5 text-[13px] font-semibold rounded-xl cursor-pointer">Delete</button>
+            className="btn-danger h-8 px-3 text-[13px] rounded-lg cursor-pointer">Delete</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ── Section heading ─────────────────────────────────────── */
-function SectionLabel({ label, count, color = 'text-slate-500', accentColor }) {
-  return (
-    <div className="flex items-center gap-3 px-1">
-      <div className="flex items-center gap-2 shrink-0">
-        {accentColor && (
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: accentColor, boxShadow: `0 0 6px ${accentColor}` }} />
-        )}
-        <p className={`text-[10px] font-bold uppercase tracking-[0.14em] ${color}`}>
-          {label}
-        </p>
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.05] text-slate-500 tabular-nums">
-          {count}
-        </span>
-      </div>
-      <div className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.04) 0%, transparent 100%)' }} />
     </div>
   );
 }
@@ -790,236 +695,160 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   const progress       = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const isToday        = selectedDate === todayStr();
 
+  const openNew  = () => { setEditingTask(null); setIsFormOpen(true); };
+  const openEdit = t => { setEditingTask(t); setIsFormOpen(true); };
+
+  const renderRows = list => list.map(task => (
+    <TaskCard key={task.id} task={task}
+      onToggle={handleToggle} onToggleSub={handleToggleSub}
+      onEdit={openEdit}
+      onDelete={setDeleteTarget}
+      onCancel={handleCancel}
+      hackathonName={hackathonNames[task.hackathon_id]}
+    />
+  ));
+
   return (
-    <div ref={rootRef} className="flex-1 h-screen flex flex-col overflow-hidden relative" style={{ background: '#07060f' }}>
-      <div className="workspace-aurora-glow workspace-glow-1" />
-      <div className="workspace-aurora-glow workspace-glow-2" />
-
-      {/* Header */}
-      <header className="glass-header px-4 lg:px-7 py-4 flex items-center justify-between shrink-0 relative z-10">
-        <div className="flex items-center gap-3">
-          <button onClick={onMenuToggle}
-            className="lg:hidden p-2 -ml-1 text-slate-500 hover:text-white rounded-xl cursor-pointer flex items-center justify-center shrink-0 bg-white/[0.04] border border-white/[0.06] transition-all hover:bg-white/[0.07]">
-            <Menu size={16} />
-          </button>
-          <div>
-            <h2 className="text-[15px] lg:text-[17px] font-extrabold text-white tracking-tight leading-tight">Daily Checklist</h2>
-            <p className="text-[10px] lg:text-[11px] text-slate-600 mt-0.5 font-medium">{formatDayFull(selectedDate)}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={onLock}
-            className="btn-ghost p-2.5 rounded-xl cursor-pointer flex items-center justify-center"
-            title="Lock workspace">
-            <Lock size={13} className="text-slate-500 hover:text-rose-400 transition-colors" />
-          </button>
-          <button
-            onClick={() => { setEditingTask(null); setIsFormOpen(true); }}
-            className="btn-primary flex items-center gap-2 px-4 py-2 text-[13px] font-bold rounded-xl cursor-pointer">
-            <Plus size={14} />
-            <span className="hidden sm:inline">New Task</span>
-            <span className="sm:hidden">Add</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Date nav + progress */}
-      <div className="px-4 lg:px-7 py-3 border-b border-white/[0.04] flex items-center justify-between gap-4 shrink-0 relative z-10"
-        style={{ background: 'rgba(7,6,15,0.6)', backdropFilter: 'blur(16px)' }}>
-        <div className="flex items-center gap-1.5">
-          <button onClick={() => shiftDate(-1)}
-            className="btn-ghost p-2 rounded-lg cursor-pointer transition-all">
-            <ChevronLeft size={13} />
-          </button>
-
-          <div className="px-3 py-1.5 rounded-xl"
-            style={{
-              background: isToday ? 'rgba(56,189,248,0.10)' : 'rgba(255,255,255,0.05)',
-              border: isToday ? '1px solid rgba(56,189,248,0.25)' : '1px solid rgba(255,255,255,0.07)',
-            }}>
-            <span className={`text-[13px] font-bold tracking-tight ${
-              isToday ? 'text-sky-300' : 'text-slate-200'
-            }`}>
-              {formatDisplayDate(selectedDate)}
-            </span>
-          </div>
-
-          <button onClick={() => shiftDate(1)}
-            className="btn-ghost p-2 rounded-lg cursor-pointer transition-all">
-            <ChevronRightIcon size={13} />
-          </button>
-
+    <div ref={rootRef} className="h-full flex flex-col">
+      <PageHeader title="Checklist" subtitle={formatDayFull(selectedDate)}
+        onMenuToggle={onMenuToggle} onLock={onLock}
+        actions={<>
           {!isToday && (
             <button onClick={() => setSelectedDate(todayStr())}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold
-                text-sky-400 border border-sky-500/25 bg-sky-500/[0.07]
-                hover:bg-sky-500/[0.12] rounded-xl transition-all cursor-pointer">
-              <RotateCcw size={10} /> Today
+              className="btn-ghost h-8 px-2.5 rounded-lg text-[13px] cursor-pointer hidden sm:inline-flex items-center gap-1.5"
+              title="Back to today">
+              <RotateCcw size={12} /> Today
             </button>
           )}
-        </div>
-
-        {totalCount > 0 && (
-          <div className="flex items-center gap-3 shrink-0">
-            {allPending.length > 0 && (
-              <button
-                onClick={handleMarkAllComplete}
-                disabled={markingAll}
-                title={`Mark all ${allPending.length} remaining task${allPending.length > 1 ? 's' : ''} as completed`}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold
-                  text-emerald-400 border border-emerald-500/25 bg-emerald-500/[0.07]
-                  hover:bg-emerald-500/[0.13] hover:text-emerald-300 rounded-xl transition-all
-                  cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                <CheckCheck size={11} />
-                <span className="hidden sm:inline">{markingAll ? 'Marking…' : 'Mark All Done'}</span>
-                <span className="sm:hidden">{markingAll ? '…' : 'All Done'}</span>
-              </button>
-            )}
-            <div className="hidden sm:flex items-center gap-2">
-              <div className="w-20 h-1 bg-white/[0.06] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{
-                    width: `${progress}%`,
-                    background: progress === 100
-                      ? 'linear-gradient(90deg, #10b981, #34d399)'
-                      : 'linear-gradient(90deg, #0ea5e9, #38bdf8)',
-                    boxShadow: progress === 100
-                      ? '0 0 8px rgba(16,185,129,0.5)'
-                      : '0 0 8px rgba(56,189,248,0.4)',
-                  }}
-                />
-              </div>
-              <span className={`text-[11px] font-bold tabular-nums ${
-                progress === 100 ? 'text-emerald-400' : 'text-slate-500'
-              }`}>
-                {doneCount}/{totalCount}
-              </span>
-            </div>
-            {progress === 100 && (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400"
-                style={{ animation: 'pulse 2s ease-in-out infinite' }}>
-                <Sparkles size={10} /> All done!
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Task list */}
-      <div className="flex-1 overflow-y-auto px-4 lg:px-7 py-6 space-y-6 relative z-10 reveal-stagger">
-        {/* Daily log — Review can say how much got done but never what
-            happened, and this is where "what happened" gets recorded. */}
-        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl"
-          style={{ background: 'rgba(255,255,255,0.018)', border: '1px solid rgba(255,255,255,0.05)' }}>
-          <NotebookPen size={13} className="text-slate-600 shrink-0" />
-          <input
-            value={dayNote}
-            onChange={e => onNoteChange(e.target.value)}
-            placeholder="One line about this day…"
-            className="flex-1 bg-transparent border-none outline-none text-[12.5px] text-slate-200 placeholder:text-slate-700 font-medium"
-          />
-          {dayNote.trim() && (
-            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-700 shrink-0">saved</span>
-          )}
-        </div>
-        {totalCount === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center py-24 max-w-sm mx-auto">
-            <div className="relative mb-6">
-              <div className="w-16 h-16 rounded-3xl flex items-center justify-center"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(56,189,248,0.10) 0%, rgba(14,165,233,0.06) 100%)',
-                  border: '1px solid rgba(56,189,248,0.16)',
-                  boxShadow: '0 0 28px rgba(56,189,248,0.06)',
-                }}>
-                <ListChecks size={26} className="text-sky-500/60" />
-              </div>
-              <div className="absolute inset-0 rounded-3xl"
-                style={{ boxShadow: '0 0 0 8px rgba(124,58,237,0.04)', animation: 'pulse 3s ease-in-out infinite' }} />
-            </div>
-            <h3 className="text-[15px] font-bold text-slate-300 tracking-tight">No tasks for this day</h3>
-            <p className="text-[12px] text-slate-600 mt-2 leading-relaxed font-medium">
-              Add a one-off task or set up recurring ones to see them here.
-            </p>
-            <button
-              onClick={() => { setEditingTask(null); setIsFormOpen(true); }}
-              className="btn-primary mt-6 px-6 py-2.5 text-[13px] font-bold rounded-xl cursor-pointer">
-              <Plus size={13} className="inline mr-1.5" />
-              Add First Task
+          <div className="flex items-center rounded-lg border border-white/[0.08] h-8">
+            <button onClick={() => shiftDate(-1)} className="icon-btn !h-full !rounded-r-none cursor-pointer" aria-label="Previous day">
+              <ChevronLeft size={14} />
+            </button>
+            <button onClick={() => setSelectedDate(todayStr())}
+              className={`px-1 sm:px-2 text-[12.5px] font-medium tabular-nums min-w-[52px] sm:min-w-[92px] cursor-pointer whitespace-nowrap ${
+                isToday ? 'text-slate-100' : 'text-slate-300 hover:text-slate-100'
+              }`}
+              title="Jump to today">
+              {formatDisplayDate(selectedDate)}
+            </button>
+            <button onClick={() => shiftDate(1)} className="icon-btn !h-full !rounded-l-none cursor-pointer" aria-label="Next day">
+              <ChevronRightIcon size={14} />
             </button>
           </div>
-        ) : (
-          <>
-            {/* Pending tasks — single unified list */}
-            {allPending.length > 0 && (
-              <div className="space-y-3">
-                <SectionLabel
-                  label="To Do"
-                  count={allPending.length}
-                  color="text-slate-400"
-                  accentColor="#38bdf8"
-                />
-                {allPending.map((task, idx) => (
-                  <div key={task.id} className="card-animate-in" style={{ animationDelay: `${idx * 45}ms` }}>
-                    <TaskCard task={task} index={idx}
-                      onToggle={handleToggle} onToggleSub={handleToggleSub}
-                      onEdit={t => { setEditingTask(t); setIsFormOpen(true); }}
-                      onDelete={setDeleteTarget}
-                      onCancel={handleCancel}
-                      hackathonName={hackathonNames[task.hackathon_id]}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+          <button
+            onClick={openNew}
+            className="btn-primary h-8 px-2.5 sm:px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5"
+            title="New task" aria-label="New task">
+            <Plus size={14} />
+            <span className="hidden sm:inline">New task</span>
+          </button>
+        </>} />
 
-            {/* Completed */}
-            {completedTasks.length > 0 && (
-              <div className="space-y-3">
-                <SectionLabel
-                  label="Completed"
-                  count={completedTasks.length}
-                  color="text-emerald-600"
-                  accentColor="#10b981"
-                />
-                {completedTasks.map((task, idx) => (
-                  <div key={task.id} className="card-animate-in" style={{ animationDelay: `${idx * 35}ms` }}>
-                    <TaskCard task={task} index={idx}
-                      onToggle={handleToggle} onToggleSub={handleToggleSub}
-                      onEdit={t => { setEditingTask(t); setIsFormOpen(true); }}
-                      onDelete={setDeleteTarget}
-                      onCancel={handleCancel}
-                      hackathonName={hackathonNames[task.hackathon_id]}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-[1100px] mx-auto px-4 lg:px-6 py-6 space-y-5 reveal-stagger">
 
-            {/* Cancelled Today */}
-            {cancelledToday.length > 0 && (
-              <div className="space-y-3 opacity-40 hover:opacity-75 transition-opacity">
-                <SectionLabel label="Cancelled Today" count={cancelledToday.length} />
-                {cancelledToday.map(task => (
-                  <div key={task.id} className="flex items-center justify-between p-4 bg-white/[0.015] border border-white/[0.04] rounded-2xl">
-                    <span className="text-[13px] text-slate-500 line-through truncate font-medium">{task.title}</span>
-                    <button
-                      onClick={() => handleUncancel(task.id)}
-                      className="px-3 py-1.5 text-indigo-400 hover:text-indigo-300 border border-indigo-500/15 bg-indigo-500/[0.04] hover:bg-indigo-500/[0.08] rounded-xl transition-all cursor-pointer flex items-center gap-1.5 text-[11px] font-bold"
-                      title="Restore Task"
-                    >
-                      <RotateCcw size={10} />
-                      Restore
-                    </button>
-                  </div>
-                ))}
+          {/* Progress for the day */}
+          {totalCount > 0 && (
+            <Card className="px-4 py-3.5 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[13px] font-medium text-slate-200 inline-flex items-center gap-1.5">
+                    {progress === 100
+                      ? <><Check size={13} className="text-emerald-400" /> All done</>
+                      : `${allPending.length} left`}
+                  </span>
+                  <span className="text-[12px] text-slate-500 tabular-nums">
+                    {doneCount}/{totalCount} · {progress}%
+                  </span>
+                </div>
+                <Progress className="mt-2" value={progress / 100} tone={progress === 100 ? 'good' : 'neutral'} height={4} />
               </div>
+              {allPending.length > 0 && (
+                <button
+                  onClick={handleMarkAllComplete}
+                  disabled={markingAll}
+                  title={`Mark all ${allPending.length} remaining task${allPending.length > 1 ? 's' : ''} as completed`}
+                  className="btn-ghost h-8 px-2.5 sm:px-3 rounded-lg text-[13px] inline-flex items-center gap-1.5 shrink-0
+                    cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                  <CheckCheck size={14} />
+                  <span className="hidden sm:inline">{markingAll ? 'Marking…' : 'Mark all done'}</span>
+                  <span className="sm:hidden">{markingAll ? '…' : 'All done'}</span>
+                </button>
+              )}
+            </Card>
+          )}
+
+          {/* Daily log — Review can say how much got done but never what
+              happened, and this is where "what happened" gets recorded. */}
+          <div className="panel flex items-center gap-2.5 px-3.5 h-11">
+            <NotebookPen size={14} className="text-slate-500 shrink-0" />
+            <input
+              value={dayNote}
+              onChange={e => onNoteChange(e.target.value)}
+              placeholder="One line about this day…"
+              aria-label="Note for this day"
+              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[13px] text-slate-200 placeholder:text-slate-500"
+            />
+            {dayNote.trim() && (
+              <span className="text-[11.5px] text-slate-500 shrink-0">Saved</span>
             )}
-          </>
-        )}
+          </div>
+
+          {totalCount === 0 ? (
+            <Card>
+              <Empty icon={ListChecks} title="No tasks for this day"
+                body="Add a one-off task or set up recurring ones to see them here."
+                action={
+                  <button onClick={openNew}
+                    className="btn-primary h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
+                    <Plus size={14} /> Add first task
+                  </button>
+                } />
+            </Card>
+          ) : (
+            <>
+              {/* Pending tasks — single unified list */}
+              {allPending.length > 0 && (
+                <Card className="overflow-hidden">
+                  <CardHeader icon={ListChecks} title="To do" meta={allPending.length} />
+                  <ul className="pb-1.5">{renderRows(allPending)}</ul>
+                </Card>
+              )}
+
+              {/* Completed */}
+              {completedTasks.length > 0 && (
+                <Card className="overflow-hidden">
+                  <CardHeader icon={CheckCheck} title="Completed" meta={completedTasks.length} />
+                  <ul className="pb-1.5">{renderRows(completedTasks)}</ul>
+                </Card>
+              )}
+
+              {/* Cancelled Today */}
+              {cancelledToday.length > 0 && (
+                <Card className="overflow-hidden">
+                  <CardHeader icon={EyeOff} title="Cancelled today" meta={cancelledToday.length} />
+                  <ul className="pb-1.5">
+                    {cancelledToday.map(task => (
+                      <li key={task.id} className="flex items-center justify-between gap-3 px-4 h-11 hover:bg-white/[0.02] transition-colors">
+                        <span className="text-[13px] text-slate-500 line-through truncate min-w-0">{task.title}</span>
+                        <button
+                          onClick={() => handleUncancel(task.id)}
+                          className="btn-ghost h-7 px-2.5 rounded-md text-[12px] inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
+                          title="Restore task"
+                        >
+                          <RotateCcw size={11} />
+                          Restore
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Fix the high priority edit handler missing setIsFormOpen */}
       <TaskFormModal
         isOpen={isFormOpen}
         onClose={() => { setIsFormOpen(false); setEditingTask(null); }}

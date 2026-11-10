@@ -1,34 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
-  <defs>
-    <linearGradient id="logoGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#6366f1" />
-      <stop offset="50%" stop-color="#8b5cf6" />
-      <stop offset="100%" stop-color="#ec4899" />
-    </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="1.8" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
-  </defs>
-
-  <!-- Star of Success (Premium 4-Point Sparkle) -->
-  <path d="M38 6C38 9.5 39.5 11 43 11C39.5 11 38 12.5 38 16C38 12.5 36.5 11 33 11C36.5 11 38 9.5 38 6Z" fill="url(#logoGrad)" filter="url(#glow)" />
-
-  <!-- Premium Floating Ascent Steps -->
-  <rect x="8" y="38" width="10" height="3" rx="1.5" fill="url(#logoGrad)" opacity="0.4" />
-  <rect x="15" y="31" width="12" height="3" rx="1.5" fill="url(#logoGrad)" opacity="0.6" />
-  <rect x="22" y="24" width="14" height="3" rx="1.5" fill="url(#logoGrad)" opacity="0.8" />
-  <rect x="29" y="17" width="16" height="3" rx="1.5" fill="url(#logoGrad)" filter="url(#glow)" />
-
-  <!-- Fluid, Dynamic Ascending Figure -->
-  <!-- Reaching Arm toward success -->
-  <path d="M28 11.5C31.5 10.5 34.5 9 37.5 7.5" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" filter="url(#glow)" />
-  <!-- Graceful fluid body in motion (stepping up) -->
-  <path d="M19 28C21 21 24 16 27.5 12" stroke="#ffffff" stroke-width="3" stroke-linecap="round" filter="url(#glow)" />
-  <!-- Back leg pushing off -->
-  <path d="M19 28C17.5 30.5 15.5 32 14.5 32.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.8" />
-  <!-- Stepping front leg -->
-  <path d="M22 21C24.5 21.5 27 22.5 28.5 23.5" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" filter="url(#glow)" />
-  <!-- Head (glowing sphere of vision/ambition) -->
-  <circle cx="28" cy="8.5" r="3.5" fill="#ffffff" filter="url(#glow)" />
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="#EDEDEF"/>
+  <circle cx="16" cy="16" r="7.25" stroke="#0B0B0D" stroke-width="2.5"/>
+  <path d="M16 16 L20.2 11.8" stroke="#0B0B0D" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="16" cy="16" r="1.9" fill="#0B0B0D"/>
 </svg>

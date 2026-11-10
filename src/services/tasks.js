@@ -57,7 +57,7 @@ function saveCompletions(c)     { saveLS(COMPLETE_KEY, c); }
 function loadSubCompletions()   { return loadLS(SUBTASK_KEY, {}); }
 function saveSubCompletions(c)  { saveLS(SUBTASK_KEY, c); }
 
-const useSupabase = () => !!getSupabaseClient();
+const hasSupabase = () => !!getSupabaseClient();
 
 // ── recurrence check ────────────────────────────────────────
 function taskAppliesOnDate(task, dateStr) {
@@ -109,7 +109,7 @@ function rowsToCompletionsMap(rows) {
 
 /** Load all tasks + build completions cache from Supabase (or localStorage) */
 export async function loadAllTasks() {
-  if (useSupabase()) {
+  if (hasSupabase()) {
     try {
       let fetchedSubCompSuccessfully = false;
       const [tasks, compRows, subCompRows] = await Promise.all([
@@ -180,7 +180,7 @@ export async function addTask(task) {
     hackathon_id: task.hackathon_id || null,
   };
 
-  if (useSupabase()) {
+  if (hasSupabase()) {
     try {
       const saved = await addTaskToSupabase(newTask);
       // update local cache
@@ -216,7 +216,7 @@ export async function updateTask(id, updates) {
     priority: updates.priority,
   };
 
-  if (useSupabase()) {
+  if (hasSupabase()) {
     try {
       const saved = await updateTaskInSupabase(id, merged);
       // update local cache
@@ -241,7 +241,7 @@ export async function updateTask(id, updates) {
 
 /** Delete a task entirely */
 export async function deleteTask(id) {
-  if (useSupabase()) {
+  if (hasSupabase()) {
     try {
       await deleteTaskFromSupabase(id);
     } catch (err) {
@@ -278,7 +278,7 @@ export async function toggleTaskCompletion(task, dateStr) {
     });
     saveSubCompletions(sc);
 
-    if (useSupabase()) {
+    if (hasSupabase()) {
       try {
         const client = getSupabaseClient();
         if (client) {
@@ -305,7 +305,7 @@ export async function toggleTaskCompletion(task, dateStr) {
       }
     }
 
-    if (useSupabase()) {
+    if (hasSupabase()) {
       try {
         await upsertTaskCompletion(task.id, dateStr, next);
       } catch (err) {
@@ -329,7 +329,7 @@ export async function toggleTaskCompletion(task, dateStr) {
 
       saveLocalTasks(tasks);
 
-      if (useSupabase()) {
+      if (hasSupabase()) {
         try {
           await updateTaskInSupabase(task.id, tasks[idx]);
         } catch (err) {
@@ -353,7 +353,7 @@ export async function toggleSubtaskCompletion(task, subtaskId, dateStr) {
     sc[key][dateStr] = next;
     saveSubCompletions(sc);
 
-    if (useSupabase()) {
+    if (hasSupabase()) {
       try {
         await upsertSubtaskCompletion(task.id, subtaskId, dateStr, next);
       } catch (err) {
@@ -374,7 +374,7 @@ export async function toggleSubtaskCompletion(task, subtaskId, dateStr) {
       if (!c[task.id][dateStr]) {
         c[task.id][dateStr] = true;
         saveCompletions(c);
-        if (useSupabase()) {
+        if (hasSupabase()) {
           try {
             await upsertTaskCompletion(task.id, dateStr, true);
           } catch (err) {
@@ -387,7 +387,7 @@ export async function toggleSubtaskCompletion(task, subtaskId, dateStr) {
       if (c[task.id] && c[task.id][dateStr]) {
         delete c[task.id][dateStr];
         saveCompletions(c);
-        if (useSupabase()) {
+        if (hasSupabase()) {
           try {
             await upsertTaskCompletion(task.id, dateStr, false);
           } catch (err) {
@@ -413,7 +413,7 @@ export async function toggleSubtaskCompletion(task, subtaskId, dateStr) {
 
         saveLocalTasks(tasks);
 
-        if (useSupabase()) {
+        if (hasSupabase()) {
           try {
             await updateTaskInSupabase(task.id, tasks[tIdx]);
           } catch (err) {

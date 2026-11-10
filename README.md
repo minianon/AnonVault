@@ -5,7 +5,7 @@
 <h1 align="center">AnonVault</h1>
 
 <p align="center">
-  <strong>A Premium Private Workspace & Personal Productivity Dashboard</strong>
+  <strong>Your private daily workspace — tasks, focus, money and deadlines in one place.</strong>
 </p>
 
 <p align="center">
@@ -16,51 +16,57 @@
 
 ## Overview
 
-AnonVault is a privacy-first personal workspace that centralizes hackathon tracking, daily checklists, project pipelines, and creative capture — all behind a 4-digit PIN lock screen.
+AnonVault is a private, keyboard-first workspace for running your day: what you have to do, what you are doing right now, where your money went, and what is due next — behind a passcode screen.
 
-The workspace uses a **glassmorphic dark UI** with per-section colour accents, a staged unlock animation, a command palette, and a Review section that reads back the history everything else has been writing.
+Version 2 is a ground-up redesign: a calm neutral interface (Geist type, hairline borders, one accent, no glow), short purposeful motion, and two new sections built for daily use — **Focus** and **Money**.
 
-> **Please read [Security posture](#security-posture) before deploying this anywhere public.** The PIN is a UI gate, not an access control.
-
----
-
-## Core Modules
-
-| Module | Description |
-| :--- | :--- |
-| **Workspace Dashboard** | The pinned home view. A pulse strip (streak, 7-day completion rate, concepts building, link into Review), today's rotating quote, a live checklist snapshot with progress, the closest/starred hackathon with its checklist progress, pinned concepts, and pinned drafts with their pipeline stage. Includes a live `HH:MM:SS` clock. |
-| **Daily Checklist** | Recurring (daily / weekdays / weekends / custom weekly) and one-off tasks with subtasks and priorities. Per-date completion, cancel-for-today, **Mark All Done**, an optional link to a hackathon, and a one-line **daily log** for the selected date. |
-| **Hackathon Timeline** | Deadlines, onsite/remote, PPI, travel, reference links and notes. Upcoming events are shown by default with expired ones behind a **Past** toggle. Each entry can own a **checklist** (with a one-click six-step template) and gains a **retrospective** field once it resolves. |
-| **Idea Vault** | Visual concept cards with tags, links and image uploads. Ideas can be **promoted** into Project Ideas, which moves them out of the active vault. Supports archiving. |
-| **Project Ideas** | A four-column **Kanban board** — `backlog → building → shipped → parked` — with drag between columns, plus a grid view. Tags, links, image attachments, archiving. |
-| **Review** | The only section that is output rather than input. Completion rate and streaks over 7/30/90 days, a clickable per-day chart, **consistently skipped** recurring tasks, the hackathon funnel with a win rate, and editable **targets** to measure against. |
-| **Quotes Vault** | A personal quote library. One rotates daily on the dashboard via a deterministic date-hash. Lives in the sidebar's secondary **More** group. |
+> **Please read [Security posture](#security-posture) before deploying this anywhere public.** The passcode is a UI gate, not an access control.
 
 ---
 
-## Workspace Features
+## Sections
 
-### Command palette — <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd>
-Searches tasks, hackathons, ideas, concepts and quotes at once, jumps to any of them, or creates a task or idea straight from the query. Create actions are ranked last so a search term never steals <kbd>Enter</kbd> from a real match.
+| # | Section | What it is for |
+| :--- | :--- | :--- |
+| 1 | **Today** | The home screen: today's checklist, Board cards in progress or due, running timers, spending against budget, the next deadlines, and your quotes shown one after another. |
+| 2 | **Checklist** | Recurring (daily / weekdays / weekends / custom weekly) and one-off daily tasks with subtasks and priorities, per-day completion and a one-line daily log. |
+| 3 | **Board** | Issues, to-dos and reminders for anything — a project, a company, yourself. To do → In progress → Done, drag or click to move, labels, priority and a due date that turns a card into a reminder on Today. Old Projects items import in one click. |
+| 4 | **Focus** | "What am I doing right now." Start a timer with a label, a free-text **source** (company, client…) and a project. Several can run at once; the day timeline shows parallel work in lanes. Hours per source next to the income it brought in. |
+| 5 | **Money** | **Overview:** log spending/income in seconds, budget bar with even-pace marker, category and daily charts, CSV export. **Income sources:** fixed amount or min–max range, linked to a company, received/partial/pending each month. **EMIs:** monthly amount and an optional number of months (empty = no end); mark paid also logs the expense. **Investments:** invested vs current value, gain/loss, allocation. **Lending:** lent/borrowed, repayments, due dates, per-person balance. |
+| 6 | **Ideas** | Two tabs. **Project:** idea capture with tags, links and images; send one to the Board when it's time. **Income:** side-income ideas with rough monthly potential, from idea → testing → earning. |
+| 7 | **Hackathons** | Deadlines, onsite/remote, travel, links and notes; a per-event checklist and a retrospective. |
+| 8 | **Review** | Completion rate and streaks over 7/30/90 days, skipped tasks, the hackathon funnel and targets. |
+| 9 | **Quotes** | Your quote collection. Today rotates through them. |
 
-### Keyboard shortcuts
+--- | :--- | :--- |
+| 1 | **Today** | The home screen. Today's tasks with inline add and subtasks, running timers, focused time, today's and this month's spending against budget, the next deadlines and the projects you are building. |
+| 2 | **Tasks** | Recurring (daily / weekdays / weekends / custom weekly) and one-off tasks with subtasks and priorities, per-day completion, mark-all-done, and a one-line daily log. |
+| 3 | **Focus** | "What am I doing right now." Start a timer with a label, a **company** and an optional project. **Several can run at once** — the day timeline lays parallel work out in lanes instead of summing it away. A Companies table shows hours per company this week/month next to the income it brought in. Last-7-days chart, time by activity / company / project, a full log with one-click restart. |
+| 4 | **Money** | Five tabs. **Overview:** log an expense or income in seconds, monthly totals, net and savings rate, a budget bar with an even-pace marker, spending by category and by day, searchable history, CSV export. **Income sources:** each source (stipend, retainer, freelance) with a fixed amount or a min–max range, linked to a company, tracked as received / partial / pending each month. **EMIs:** each instalment plan with amount, tenure and due day — paid x of n, amount left, end month, due/overdue alerts, and one-click "mark paid" that also logs the expense. **Investments:** SIPs, stocks, FDs, gold, crypto — invested vs current value, gain/loss and allocation. **Lending:** money you lent or borrowed, repayments, due dates, overdue, and a per-person balance. INR by default; currency is configurable. |
+| 5 | **Projects** | A Kanban board — `backlog → building → shipped → parked` — with drag between columns, plus a grid view. Start a focus timer on any "building" project from Today. |
+| 6 | **Ideas** | Quick capture with tags, links and images; promote one into Projects when it is ready. A separate **Income ideas** tab keeps side-income ideas with a rough monthly potential and moves them from idea → testing → earning (turning into an income source in Money). |
+| 7 | **Hackathons** | Deadlines, onsite/remote, travel, links and notes; a per-event checklist (one-click six-step template) and a retrospective once it resolves. |
+| 8 | **Review** | Output, not input: completion rate and streaks over 7/30/90 days, consistently skipped tasks, the hackathon funnel and your targets. |
+
+---
+
+## Keyboard
+
 | Key | Action |
 | :--- | :--- |
-| <kbd>1</kbd>–<kbd>7</kbd> | Jump to a section |
-| <kbd>n</kbd> | New item in the current section |
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd> | Command palette — search everything, jump anywhere, or act |
+| <kbd>1</kbd>–<kbd>9</kbd> | Jump to a section |
+| <kbd>[</kbd> | Collapse / expand the sidebar |
+| <kbd>n</kbd> | New item in the current section (in Money it focuses the amount; in Focus, the timer label) |
 | <kbd>/</kbd> | Focus the current section's search |
-| <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>K</kbd> | Command palette |
 
-All are ignored while typing and while a modal or the palette is open.
+In the palette, typing an amount logs an expense (`250 lunch`), and any other text can start a timer, add a task or save an idea. Shortcuts are ignored while typing and while a dialog is open.
 
-### Unlock sequence
-Correct PIN → an **access-granted briefing** showing a progress dial of today's completion, a count-up of tasks due / hackathon deadlines this week / project ideas, and an adaptive summary line. Any key or click skips it; clicking a tile skips *and* lands you in that section. The lock layer then leaves as an aperture collapsing onto the emblem while the dashboard stages in — sidebar, then main, then panels.
+---
 
-### Undo
-Deleting a hackathon, idea or quote offers **Undo** for 7 seconds in the toast. Restoring re-inserts the record, so it returns with a new id.
+## Data model
 
-### Archiving
-The two capture sections (Idea Vault, Project Ideas) support archiving — a per-card action plus a toolbar toggle, with a banner while you are inside the archive. Stored locally as a view preference, the same way pinning already works.
+Tasks, hackathons, ideas and projects live in Supabase as before. **Money**, **Focus**, **Board**, **Quotes**, companies and income ideas are local-first: every write lands in `localStorage` instantly and is mirrored to Supabase when the tables from migration `003` exist, so they work offline and on an unmigrated database. On unlock, local rows are pushed up and remote rows pulled down.
 
 ---
 
@@ -70,13 +76,10 @@ The two capture sections (Idea Vault, Project Ideas) support archiving — a per
 
 Create a free [Supabase](https://supabase.com) project, then:
 
-1. Open the **SQL Editor** and run [`supabase/schema.sql`](supabase/schema.sql).
-2. Run the migrations in order — these add hackathon-linked tasks, the project pipeline, the daily log and hackathon retros:
-   - [`supabase/migrations/001_hackathon_tasks_and_project_status.sql`](supabase/migrations/001_hackathon_tasks_and_project_status.sql)
-   - [`supabase/migrations/002_journal_retro.sql`](supabase/migrations/002_journal_retro.sql)
-3. Go to **Storage** and create a public bucket named exactly `idea-images`.
+1. Open the **SQL Editor**, paste [`supabase/setup_full.sql`](supabase/setup_full.sql) and run it. That's the whole database: every table, the image bucket and its policies.
+2. That's it. The script is safe to run on an existing AnonVault database too (it only adds what's missing) and safe to run again.
 
-> Existing installs only need the migrations. The app degrades gracefully without them — the new columns are only sent when they hold a value — so unmigrated databases keep working, minus the features that depend on them.
+> The individual files in `supabase/migrations/` are kept for history; `setup_full.sql` already includes all of them.
 
 ### 2. Environment
 
