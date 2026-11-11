@@ -1,20 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import Sidebar from './components/Sidebar';
 import { NAV } from './nav';
-import TimelineView from './components/TimelineView';
-import IdeasSection from './components/IdeasSection';
-import TasksView from './components/TasksView';
-import BoardView from './components/BoardView';
-import QuotesView from './components/QuotesView';
-import CalendarView from './components/CalendarView';
-import DashboardView from './components/DashboardView';
-import ReviewView from './components/ReviewView';
-import CommandPalette from './components/CommandPalette';
-import FocusView from './components/FocusView';
-import MoneyView from './components/MoneyView';
 import Logo from './components/Logo';
 import { ToastProvider, useToast } from './components/Toast';
 import GlobalTooltip from './components/GlobalTooltip';
+import MobileTabBar, { MOBILE_TAB_BAR_HEIGHT } from './components/MobileTabBar';
 import { Lock, LockOpen, Delete } from 'lucide-react';
 import { 
   fetchApplications, 
@@ -35,6 +25,7 @@ import { sessions as focusStore } from './services/focus';
 import { meetings as meetingStore, meetingsOn } from './services/meetings';
 import { syncPrefs } from './services/prefs';
 import { onSyncIssue } from './services/syncStatus';
+import { useReminders } from './services/reminders';
 
 /**
  * Pull every other-device change into the local caches and push anything
@@ -59,6 +50,51 @@ function syncLocalFirstStores() {
     quoteStore.sync(),
     meetingStore.sync(),
   ]);
+}
+
+
+/* Each section is its own file, so the lock screen shows without waiting
+   for the whole app. They all start downloading straight away (every panel
+   is mounted behind the lock), so switching tabs stays instant.
+   After a deploy an old tab can ask for a file that no longer exists; reload
+   once to pick up the new version instead of showing an error. */
+function lazyView(load) {
+  return lazy(() => load().catch(err => {
+    const key = 'anonvault_chunk_reload';
+    if (!sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, '1');
+      window.location.reload();
+      return new Promise(() => {});
+    }
+    throw err;
+  }).then(mod => { sessionStorage.removeItem('anonvault_chunk_reload'); return mod; }));
+}
+const TimelineView   = lazyView(() => import('./components/TimelineView'));
+const IdeasSection   = lazyView(() => import('./components/IdeasSection'));
+const TasksView      = lazyView(() => import('./components/TasksView'));
+const BoardView      = lazyView(() => import('./components/BoardView'));
+const QuotesView     = lazyView(() => import('./components/QuotesView'));
+const CalendarView   = lazyView(() => import('./components/CalendarView'));
+const DashboardView  = lazyView(() => import('./components/DashboardView'));
+const ReviewView     = lazyView(() => import('./components/ReviewView'));
+const CommandPalette = lazyView(() => import('./components/CommandPalette'));
+const FocusView      = lazyView(() => import('./components/FocusView'));
+const MoneyView      = lazyView(() => import('./components/MoneyView'));
+
+/** Shown in a panel for the moment its file is still loading. */
+function ViewFallback() {
+  return (
+    <div className="h-full flex flex-col" aria-busy="true">
+      <div className="glass-header h-14 shrink-0" />
+      <div className="max-w-[1100px] w-full mx-auto px-4 lg:px-6 py-6 space-y-4">
+        <div className="panel h-28 animate-pulse opacity-60" />
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4">
+          <div className="panel h-64 animate-pulse opacity-50" />
+          <div className="panel h-64 animate-pulse opacity-40" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 class ErrorBoundary extends React.Component {
@@ -484,7 +520,11 @@ function AppInner() {
   const [lockFadeOut, setLockFadeOut] = useState(false);
   const [revealing, setRevealing] = useState(false);
   const revealTimers = useRef([]);
-  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard as default
+  const [activeTab, setActiveTab] = useState(() => {
+    // Installed-app shortcuts open a section directly (/?tab=calendar).
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return NAV.some(n => n.id === t) ? t : 'dashboard';
+  });
   const [initIdeaId, setInitIdeaId] = useState(null);
   const [initHackathonId, setInitHackathonId] = useState(null);
   const [initTaskDate, setInitTaskDate] = useState(null);
@@ -841,6 +881,9 @@ function AppInner() {
     };
   }, [isAuthorized, refreshPendingTasks]);
 
+  // Nudges before meetings and timed Board cards, while unlocked.
+  useReminders({ active: isAuthorized, showToast });
+
   // A save that didn't reach Supabase is kept locally and retried; say so
   // once per distinct problem instead of failing silently.
   useEffect(() => {
@@ -1081,7 +1124,7 @@ function AppInner() {
 
           <ErrorBoundary>
             <div className="relative flex-1 h-full w-full overflow-hidden">
-              <div {...panel('dashboard')}>
+              <div {...panel('dashboard')}><Suspense fallback={<ViewFallback />}>
                 <DashboardView
                   applications={applications}
                   projectIdeas={projectIdeas}
@@ -1095,9 +1138,9 @@ function AppInner() {
                   onOpenBoard={() => setActiveTab('board')}
                   onSelectHackathon={(id) => { setInitHackathonId(id); setActiveTab('timeline'); }}
                 />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('tasks')}>
+              <div {...panel('tasks')}><Suspense fallback={<ViewFallback />}>
                 <TasksView
                   applications={applications}
                   initialDate={initTaskDate}
@@ -1108,32 +1151,32 @@ function AppInner() {
                   onLock={handleLock}
                   onMenuToggle={menu}
                 />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('focus')}>
+              <div {...panel('focus')}><Suspense fallback={<ViewFallback />}>
                 <FocusView onLock={handleLock} onMenuToggle={menu} showToast={showToast} projectIdeas={projectIdeas} />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('money')}>
+              <div {...panel('money')}><Suspense fallback={<ViewFallback />}>
                 <MoneyView onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('board')}>
+              <div {...panel('board')}><Suspense fallback={<ViewFallback />}>
                 <BoardView onLock={handleLock} onMenuToggle={menu} showToast={showToast} legacyProjects={projectIdeas} />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('calendar')}>
+              <div {...panel('calendar')}><Suspense fallback={<ViewFallback />}>
                 <CalendarView applications={applications} tasksVersion={tasksVersion} setActiveTab={setActiveTab}
                   onSelectHackathon={id => { setInitHackathonId(id); setActiveTab('timeline'); }}
                   onOpenChecklistDate={d => { setInitTaskDate(d); setActiveTab('tasks'); }}
                   onTasksChange={refreshPendingTasks}
                   onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('quotes')}>
+              <div {...panel('quotes')}><Suspense fallback={<ViewFallback />}>
                 <QuotesView onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
-              </div>
-              <div {...panel('ideas')}>
+              </Suspense></div>
+              <div {...panel('ideas')}><Suspense fallback={<ViewFallback />}>
                 <IdeasSection
                   setActiveTab={setActiveTab}
                   ideas={ideas}
@@ -1151,9 +1194,9 @@ function AppInner() {
                   initialSelectedIdeaId={initIdeaId}
                   onClearInitialSelectedIdea={() => setInitIdeaId(null)}
                 />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('timeline')}>
+              <div {...panel('timeline')}><Suspense fallback={<ViewFallback />}>
                 <TimelineView
                   applications={applications}
                   onAdd={handleAddApplication}
@@ -1169,9 +1212,9 @@ function AppInner() {
                   initialSelectedAppId={initHackathonId}
                   onClearInitialSelectedApp={() => setInitHackathonId(null)}
                 />
-              </div>
+              </Suspense></div>
 
-              <div {...panel('review')}>
+              <div {...panel('review')}><Suspense fallback={<ViewFallback />}>
                 <ReviewView
                   applications={applications}
                   tasksVersion={tasksVersion}
@@ -1180,12 +1223,17 @@ function AppInner() {
                   setActiveTab={setActiveTab}
                   onPickDate={date => { setInitTaskDate(date); setActiveTab('tasks'); }}
                 />
-              </div>
+              </Suspense></div>
             </div>
           </ErrorBoundary>
+          {/* space for the phone tab bar */}
+          <div className="md:hidden shrink-0" style={{ height: `calc(${MOBILE_TAB_BAR_HEIGHT}px + env(safe-area-inset-bottom))` }} />
         </main>
+
+        <MobileTabBar activeTab={activeTab} setActiveTab={setActiveTab} stats={stats} onMore={() => setMobileMenuOpen(true)} />
       </div>
 
+      <Suspense fallback={null}>
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
@@ -1201,6 +1249,7 @@ function AppInner() {
         onQuickAddTask={handleQuickAddTask}
         onQuickAddIdea={handleQuickAddIdea}
       />
+      </Suspense>
 
       {showLockScreen && (
         <div style={{

@@ -1,9 +1,68 @@
-import { useState } from 'react';
-import { Video, ChevronRight, ExternalLink, Repeat2, Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Video, ChevronRight, ExternalLink, Repeat2, Plus, Bell, BellOff } from 'lucide-react';
 import { Card, CardHeader, LinkButton } from './ui';
 import { useNow } from '../services/focus';
 import { meetings as meetingStore, meetingsOn, nextDate, timeRange, timing, linkHref, ymd } from '../services/meetings';
 import MeetingModal from './MeetingModal';
+import {
+  useReminderSettings, setReminderSettings, LEAD_OPTIONS, notificationPermission, notificationsSupported, enableSystemNotifications,
+} from '../services/reminders';
+
+/** Bell in the card header: reminders on/off, how early, and system notifications. */
+function ReminderControl() {
+  const s = useReminderSettings();
+  const [open, setOpen] = useState(false);
+  const [perm, setPerm] = useState(notificationPermission());
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = e => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => { setPerm(notificationPermission()); setOpen(o => !o); }} className="icon-btn"
+        title={s.enabled ? `Reminders ${s.lead} min before` : 'Reminders off'} aria-label="Reminder settings">
+        {s.enabled ? <Bell size={14} /> : <BellOff size={14} />}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-[260px] p-3 rounded-xl border border-white/[0.1] space-y-3"
+          style={{ background: 'var(--surface-2)', boxShadow: 'var(--shadow-lg)', animation: 'selectIn 0.14s var(--ease) both', transformOrigin: 'top right' }}>
+          <label className="flex items-center justify-between gap-3 cursor-pointer">
+            <span className="text-[13px] text-slate-200">Remind me before meetings</span>
+            <input type="checkbox" checked={s.enabled} onChange={e => setReminderSettings({ enabled: e.target.checked })}
+              className="w-4 h-4 accent-[var(--accent)] cursor-pointer" />
+          </label>
+          {s.enabled && (
+            <div className="flex items-center gap-1">
+              {LEAD_OPTIONS.map(n => (
+                <button key={n} onClick={() => setReminderSettings({ lead: n })} aria-pressed={s.lead === n}
+                  className={`flex-1 h-7 rounded-md text-[12px] tabular-nums cursor-pointer border transition-colors ${
+                    s.lead === n ? 'bg-white/[0.1] border-white/[0.16] text-slate-50' : 'border-white/[0.06] text-slate-400 hover:text-slate-200'}`}>
+                  {n}m
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="pt-2 border-t border-white/[0.06]">
+            {!notificationsSupported() ? (
+              <p className="text-[11.5px] text-slate-500">This browser can't show system notifications; you'll still get in-app reminders.</p>
+            ) : perm === 'granted' ? (
+              <p className="text-[11.5px] text-emerald-300">System notifications are on for this device.</p>
+            ) : perm === 'denied' ? (
+              <p className="text-[11.5px] text-slate-500">Notifications are blocked for this site. Allow them in the browser's site settings to get alerts outside the app.</p>
+            ) : (
+              <button onClick={async () => setPerm(await enableSystemNotifications())}
+                className="w-full h-8 rounded-lg text-[12.5px] btn-primary cursor-pointer">Turn on system notifications</button>
+            )}
+            <p className="text-[11px] text-slate-600 mt-1.5">Works while AnonVault is open in a tab or installed app.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Today's meetings on the dashboard, with what's on now and what's next. */
 export default function MeetingsToday({ setActiveTab, showToast }) {
@@ -34,7 +93,10 @@ export default function MeetingsToday({ setActiveTab, showToast }) {
   return (
     <Card>
       <CardHeader icon={Video} title="Meetings" meta={todays.length ? `${left} of ${todays.length} left` : null}
-        action={<LinkButton onClick={() => { setActiveTab('calendar'); window.dispatchEvent(new CustomEvent('anonvault:calendar-view', { detail: 'meetings' })); }}>All meetings <ChevronRight size={12} /></LinkButton>} />
+        action={<div className="flex items-center gap-1">
+          <ReminderControl />
+          <LinkButton onClick={() => { setActiveTab('calendar'); window.dispatchEvent(new CustomEvent('anonvault:calendar-view', { detail: 'meetings' })); }}>All meetings <ChevronRight size={12} /></LinkButton>
+        </div>} />
       {todays.length === 0 ? (
         <div className="px-4 pb-4 flex items-center gap-2">
           <p className="flex-1 text-[12.5px] text-slate-500 min-w-0">

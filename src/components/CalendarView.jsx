@@ -10,11 +10,12 @@ import { getTasksForDateSync, toggleTaskCompletion } from '../services/tasks';
 import { parseCapture, ymdOf } from '../services/nlp';
 import { addToChecklist } from '../utils/jump';
 import { PageHeader, Card, Empty, Segmented } from './ui';
-import { meetings as meetingStore, occurrencesBetween, timeRange, repeatLabel, linkHref } from '../services/meetings';
+import { meetings as meetingStore, occurrencesBetween, timeRange, repeatLabel, linkHref, skipOccurrence, saveMeeting, formatTime } from '../services/meetings';
 import MeetingModal from './MeetingModal';
 import MeetingsView from './MeetingsView';
+import TimeGrid from './TimeGrid';
 
-const VIEW_OPTIONS = [{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }, { value: 'meetings', label: 'Meetings' }];
+const VIEW_OPTIONS = [{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }, { value: 'day', label: 'Day' }, { value: 'meetings', label: 'Meetings' }];
 
 const KINDS = {
   meeting:   { label: 'Meetings',  color: '#c49cff', icon: Video },
@@ -131,7 +132,8 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
 
   const days = useMemo(() => (view === 'week'
     ? Array.from({ length: 7 }, (_, i) => addDays(new Date(weekStart + 'T00:00:00'), i))
-    : monthGrid(month)), [view, weekStart, month]);
+    : view === 'day' ? [new Date(selected + 'T00:00:00')]
+    : monthGrid(month)), [view, weekStart, month, selected]);
   const rangeFrom = ymdOf(days[0]);
   const rangeTo = ymdOf(days[days.length - 1]);
 
@@ -211,7 +213,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
   const spent = tx.filter(t => t.type !== 'income' && t.date === selected).reduce((s, t) => s + Number(t.amount || 0), 0);
 
   // header counts for the month (or week) on screen
-  const inMonth = [...byDate.entries()].filter(([d]) => (view === 'week' ? d >= rangeFrom && d <= rangeTo : d.startsWith(month))).flatMap(([, l]) => l);
+  const inMonth = [...byDate.entries()].filter(([d]) => (view === 'month' ? d.startsWith(month) : d >= rangeFrom && d <= rangeTo)).flatMap(([, l]) => l);
   const count = k => inMonth.filter(e => e.kind === k && !e.done).length;
 
   const go = d => { setMonth(d.slice(0, 7)); setWeekStart(ymdOf(mondayOf(new Date(d + 'T00:00:00')))); setSelected(d); };
@@ -221,19 +223,54 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     go(selected);
   };
   const step = n => {
-    if (view === 'week') {
+    if (view === 'day') go(ymdOf(addDays(new Date(selected + 'T00:00:00'), n)));
+    else if (view === 'week') {
       const ws = addDays(new Date(weekStart + 'T00:00:00'), n * 7);
       setWeekStart(ymdOf(ws));
       setMonth(ymdOf(ws).slice(0, 7));
       setSelected(ymdOf(ws));
     } else setMonth(m => shiftMonth(m, n));
   };
-  const navLabel = view === 'week'
+  const navLabel = view === 'day'
+    ? new Date(selected + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+    : view === 'week'
     ? (() => {
         const a = days[0], b = days[6];
         return `${a.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${b.toLocaleDateString(undefined, a.getMonth() === b.getMonth() ? { day: 'numeric' } : { day: 'numeric', month: 'short' })}`;
       })()
     : null;
+
+  const navShort = view === 'day'
+    ? new Date(selected + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    : view === 'week' ? `${days[0].getDate()}–${days[days.length - 1].getDate()}` : null;
+
+  /* Time grid: drag a block to move it, click an empty slot to add a meeting. */
+  const canMove = ev => ev.kind === 'meeting' || (ev.kind === 'card' && !ev.done);
+  const createAt = (date, time) => setMeetingEdit({ meeting: null, date, draft: { title: '', time } });
+  const moveEvent = (ev, date, start, end) => {
+    const where = `${new Date(date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${formatTime(start)}`;
+    if (ev.kind === 'card') {
+      const prev = { due_date: ev.item.due_date, due_time: ev.item.due_time || null };
+      board.update(ev.item.id, { due_date: date, due_time: start });
+      showToast?.('success', `Moved to ${where}`, ev.title, 6000, { label: 'Undo', onClick: () => board.update(ev.item.id, prev) });
+      return;
+    }
+    const m = ev.meeting;
+    if (!m.recurrence || m.recurrence === 'none') {
+      const prev = { start_date: m.start_date, start_time: m.start_time, end_time: m.end_time };
+      meetingStore.update(m.id, { start_date: date, start_time: start, end_time: m.end_time ? end : null });
+      showToast?.('success', `Moved to ${where}`, m.title, 6000, { label: 'Undo', onClick: () => meetingStore.update(m.id, prev) });
+      return;
+    }
+    // A repeating meeting: move just this one (the rest of the series stays put).
+    const undoSkip = skipOccurrence(m, ev.date);
+    const copy = saveMeeting(null, {
+      title: m.title, start_date: date, start_time: start, end_time: m.end_time ? end : '',
+      recurrence: 'none', link: m.link, note: m.note,
+    });
+    showToast?.('success', `Moved this one to ${where}`, `${m.title} — the rest of the series is unchanged`, 7000,
+      { label: 'Undo', onClick: () => { undoSkip(); if (copy) meetingStore.remove(copy.id); } });
+  };
 
   /* Drag a Board card onto another day to move its due date. */
   const reschedule = (id, key) => {
@@ -352,14 +389,17 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
           <div className="flex items-center rounded-lg border border-white/[0.08] h-8">
             <button onClick={() => step(-1)} className="icon-btn !h-full !rounded-r-none" aria-label={`Previous ${view}`}><ChevronLeft size={14} /></button>
             <span className="px-1.5 sm:px-2 text-[12.5px] text-slate-200 font-medium whitespace-nowrap min-w-[64px] sm:min-w-[110px] text-center tabular-nums">
-              {view === 'week' ? navLabel : <>
+              {view !== 'month' ? <>
+                <span className="sm:hidden">{navShort}</span>
+                <span className="hidden sm:inline">{navLabel}</span>
+              </> : <>
                 <span className="sm:hidden">{monthLabel(month, { month: 'short' })}</span>
                 <span className="hidden sm:inline">{monthLabel(month)}</span>
               </>}
             </span>
             <button onClick={() => step(1)} className="icon-btn !h-full !rounded-l-none" aria-label={`Next ${view}`}><ChevronRight size={14} /></button>
           </div>
-          <button onClick={() => go(today)} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Today</button>
+          <button onClick={() => go(today)} className="hidden sm:inline-flex items-center btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Today</button>
           <NewMenu dayLabel={selectedLabel} onPick={pickNew} />
         </>} />
 
@@ -381,13 +421,15 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                 </button>
               );
             })}
-            <span className="hidden md:inline ml-auto text-[12px] text-slate-600">Drag a Board card to another day to move it</span>
+            <span className="hidden md:inline ml-auto text-[12px] text-slate-600">
+              {view === 'month' ? 'Drag a Board card to another day to move it' : 'Drag a block to move it · click an empty time to add a meeting'}
+            </span>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
             {/* month grid / week columns */}
             <div className="panel overflow-hidden min-w-0">
-              <div className={`grid grid-cols-7 border-b border-white/[0.06] ${view === 'week' ? 'hidden sm:grid' : ''}`}>
+              <div className={`grid grid-cols-7 border-b border-white/[0.06] ${view === 'month' ? '' : 'hidden'}`}>
                 {days.slice(0, 7).map((d, i) => {
                   const key = ymdOf(d);
                   return view === 'week' ? (
@@ -468,7 +510,15 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                   })}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-7">
+                <>
+                <div className={view === 'week' ? 'hidden sm:block' : ''}>
+                  <TimeGrid days={days} today={today} selected={selected} kinds={KINDS} eventsFor={visible}
+                    onSelectDay={setSelected} onOpenEvent={openEvent} onCreateAt={createAt}
+                    onMoveEvent={moveEvent} canMove={canMove}
+                    focusFor={d => focusByDay.get(ymdOf(d)) || 0} goalMs={goal * 60000} />
+                </div>
+                {view === 'week' && (
+                <div className="grid grid-cols-1 sm:hidden">
                   {days.map((d, i) => {
                     const key = ymdOf(d);
                     const evAll = visible(key);
@@ -531,6 +581,8 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                     );
                   })}
                 </div>
+                )}
+                </>
               )}
             </div>
 
