@@ -20,7 +20,8 @@ import {
   addApplication, 
   updateApplication, 
   deleteApplication,
-  fetchProjectIdeas
+  fetchProjectIdeas,
+  getSupabaseClient
 } from './services/supabase';
 import { getTasksForDateSync, loadAllTasks, addTask } from './services/tasks';
 import { syncNotes } from './services/journal';
@@ -728,36 +729,110 @@ function AppInner() {
     setTasksVersion(v => v + 1);
   }, []);
 
-  // Sync used to happen only at unlock, so a device left open never saw
-  // changes made elsewhere. Re-sync when the window comes back into focus
-  // (at most every 30s) and every 5 minutes while it's open.
+  // Keep an open device current without a refresh:
+  //  - Supabase Realtime tells us the moment a table changes on any device,
+  //    and only that table is re-synced (debounced, so a burst of writes is
+  //    one sync);
+  //  - coming back to the window re-syncs everything (at most every 5s);
+  //  - a timer catches anything missed: every minute while Realtime is not
+  //    connected (not enabled in Supabase yet, or offline), else every 5.
   useEffect(() => {
     if (!isAuthorized) return;
-    let last = Date.now();
-    let running = false;
-    const run = async () => {
-      if (running || Date.now() - last < 30000) return;
-      running = true;
-      last = Date.now();
+
+    const reloadApps = async () => {
+      const apps = await fetchApplications().catch(() => null);
+      if (apps) setApplications(apps);
+    };
+    const reloadProjectIdeas = async () => {
+      const list = await fetchProjectIdeas().catch(() => null);
+      if (list) { setProjectIdeas(list); setProjectIdeasCount(list.length); }
+    };
+    const tasksSync = () => loadAllTasks().catch(() => {});
+    const SYNC_FOR_TABLE = {
+      tasks: tasksSync,
+      task_completions: tasksSync,
+      subtask_completions: tasksSync,
+      ideas: () => ideaStore.sync(),
+      daily_notes: syncNotes,
+      app_settings: syncPrefs,
+      transactions: () => moneyStore.sync(),
+      focus_sessions: () => focusStore.sync(),
+      income_sources: () => incomeSources.sync(),
+      investments: () => investments.sync(),
+      loans: () => loans.sync(),
+      emis: () => emis.sync(),
+      income_ideas: () => incomeIdeas.sync(),
+      companies: () => companies.sync(),
+      board_items: () => board.sync(),
+      quotes: () => quoteStore.sync(),
+      applications: reloadApps,
+      project_ideas: reloadProjectIdeas,
+    };
+
+    let disposed = false;
+    let lastFull = Date.now();
+    let fullRunning = false;
+    const runFull = async (force = false) => {
+      if (disposed || fullRunning || (!force && Date.now() - lastFull < 5000)) return;
+      fullRunning = true;
+      lastFull = Date.now();
       try {
-        const [apps] = await Promise.all([
-          fetchApplications().catch(() => null),
-          syncLocalFirstStores(),
-        ]);
-        if (apps) setApplications(apps);
-        refreshPendingTasks();
+        await Promise.all([reloadApps(), syncLocalFirstStores()]);
+        if (!disposed) refreshPendingTasks();
       } finally {
-        running = false;
+        fullRunning = false;
       }
     };
-    const onVisible = () => { if (document.visibilityState === 'visible') run(); };
-    window.addEventListener('focus', run);
+
+    // Realtime: collect changed tables for a moment, then sync just those.
+    const changed = new Set();
+    let debounce = null;
+    const flushChanged = async () => {
+      const fns = new Set([...changed].map(t => SYNC_FOR_TABLE[t]).filter(Boolean));
+      const touchedTasks = ['tasks', 'task_completions', 'subtask_completions', 'daily_notes'].some(t => changed.has(t));
+      changed.clear();
+      await Promise.all([...fns].map(fn => fn()));
+      if (!disposed && touchedTasks) refreshPendingTasks();
+    };
+    let realtimeUp = false;
+    const client = getSupabaseClient();
+    const channel = client
+      ? client
+          .channel('anonvault-sync')
+          .on('postgres_changes', { event: '*', schema: 'public' }, payload => {
+            if (!payload?.table || !SYNC_FOR_TABLE[payload.table]) return;
+            changed.add(payload.table);
+            clearTimeout(debounce);
+            debounce = setTimeout(flushChanged, 700);
+          })
+          .subscribe(status => {
+            const up = status === 'SUBSCRIBED';
+            // Reconnected after a drop: catch up on whatever was missed.
+            if (up && !realtimeUp) runFull(true);
+            realtimeUp = up;
+          })
+      : null;
+
+    const onFocus = () => runFull();
+    const onVisible = () => { if (document.visibilityState === 'visible') runFull(); };
+    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisible);
-    const timer = setInterval(run, 5 * 60 * 1000);
+    let lastTick = Date.now();
+    const timer = setInterval(() => {
+      const every = realtimeUp ? 5 * 60 * 1000 : 60 * 1000;
+      if (document.visibilityState === 'visible' && Date.now() - lastTick >= every) {
+        lastTick = Date.now();
+        runFull(true);
+      }
+    }, 15 * 1000);
+
     return () => {
-      window.removeEventListener('focus', run);
-      document.removeEventListener('visibilitychange', onVisible);
+      disposed = true;
+      clearTimeout(debounce);
       clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+      if (channel) client.removeChannel(channel);
     };
   }, [isAuthorized, refreshPendingTasks]);
 

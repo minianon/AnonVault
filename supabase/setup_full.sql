@@ -347,6 +347,31 @@ BEGIN
   END IF;
 END $$;
 
+-- ════════════════════════════════════════════════════════════════════
+-- 5. REALTIME — tell open devices the moment something changes
+-- ════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    CREATE PUBLICATION supabase_realtime;
+  END IF;
+  FOREACH t IN ARRAY ARRAY[
+    'applications', 'ideas', 'tasks', 'task_completions', 'subtask_completions',
+    'project_ideas', 'quotes', 'daily_notes', 'board_items', 'companies',
+    'focus_sessions', 'transactions', 'income_sources', 'emis', 'investments',
+    'loans', 'income_ideas', 'app_settings'
+  ] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = t
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+    END IF;
+  END LOOP;
+END $$;
+
 -- Refresh the API's schema cache so the new tables are usable right away.
 NOTIFY pgrst, 'reload schema';
 

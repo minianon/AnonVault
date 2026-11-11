@@ -798,16 +798,20 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   const [dayNote, setDayNote] = useState('');
   const noteTimer = useRef(null);
 
+  // Reload on a new date, and when a sync brings in another device's note
+  // (tasksVersion) — but never over a line that's still being typed here.
+  const noteDateRef = useRef(null);
   useEffect(() => {
-    // Loading the note for a new date is exactly what this effect is for.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    const dateChanged = noteDateRef.current !== selectedDate;
+    noteDateRef.current = selectedDate;
+    if (!dateChanged && noteTimer.current) return;
     setDayNote(getNote(selectedDate));
-  }, [selectedDate]);
+  }, [selectedDate, tasksVersion]);
 
   const onNoteChange = value => {
     setDayNote(value);
     clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => setNote(selectedDate, value), 600);
+    noteTimer.current = setTimeout(() => { noteTimer.current = null; setNote(selectedDate, value); }, 600);
   };
 
   useEffect(() => () => clearTimeout(noteTimer.current), []);
