@@ -34,7 +34,7 @@ export default function MeetingsToday({ setActiveTab, showToast }) {
   return (
     <Card>
       <CardHeader icon={Video} title="Meetings" meta={todays.length ? `${left} of ${todays.length} left` : null}
-        action={<LinkButton onClick={() => setActiveTab('meetings')}>All meetings <ChevronRight size={12} /></LinkButton>} />
+        action={<LinkButton onClick={() => { setActiveTab('calendar'); window.dispatchEvent(new CustomEvent('anonvault:calendar-view', { detail: 'meetings' })); }}>All meetings <ChevronRight size={12} /></LinkButton>} />
       {todays.length === 0 ? (
         <div className="px-4 pb-4 flex items-center gap-2">
           <p className="flex-1 text-[12.5px] text-slate-500 min-w-0">

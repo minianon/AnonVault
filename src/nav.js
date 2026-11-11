@@ -1,15 +1,15 @@
 import {
-  LayoutDashboard, CheckSquare, Timer, Wallet, KanbanSquare, Lightbulb, CalendarRange, BarChart3, Quote, CalendarDays, Video,
+  LayoutDashboard, CheckSquare, Timer, Wallet, KanbanSquare, Lightbulb, CalendarRange, BarChart3, Quote, CalendarDays,
 } from 'lucide-react';
 
 /* Primary sections, in sidebar order. Number keys 1–9 and 0 follow this order.
    `countKey` reads from the stats object App passes to the sidebar. */
 export const NAV = [
+  // Today = do it now · Calendar = plan any day (incl. Meetings) · Checklist = manage tasks & habits
   { id: 'dashboard', label: 'Today',      icon: LayoutDashboard, group: 'Plan' },
+  { id: 'calendar',  label: 'Calendar',   icon: CalendarDays, countKey: 'meetingsToday', group: 'Plan' },
   { id: 'tasks',     label: 'Checklist',  icon: CheckSquare, countKey: 'pendingTasks', group: 'Plan' },
   { id: 'board',     label: 'Board',      icon: KanbanSquare, countKey: 'boardOpen', group: 'Plan' },
-  { id: 'calendar',  label: 'Calendar',   icon: CalendarDays, group: 'Plan' },
-  { id: 'meetings',  label: 'Meetings',   icon: Video, countKey: 'meetingsToday', group: 'Plan' },
   { id: 'focus',     label: 'Focus',      icon: Timer, group: 'Track' },
   { id: 'money',     label: 'Money',      icon: Wallet, group: 'Track' },
   { id: 'ideas',     label: 'Ideas',      icon: Lightbulb, countKey: 'totalIdeas', group: 'Collect' },

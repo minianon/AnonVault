@@ -182,3 +182,40 @@ export function endSeriesBefore(m, dateStr) {
   meetings.update(m.id, { ends_on: ymd(prev) });
   return () => meetings.update(m.id, { ends_on: before });
 }
+
+/* ── looks ────────────────────────────────────────────── */
+
+const MEETING_COLORS = ['#c49cff', '#6c96ff', '#4fd1a0', '#f0b445', '#f5768a', '#5fd4e8', '#94b6ff', '#f7cf7b'];
+
+/** A steady colour per meeting (from its id), so a series is easy to spot. */
+export function colorOf(m) {
+  const key = String(m?.id || m?.title || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return MEETING_COLORS[Math.abs(h) % MEETING_COLORS.length];
+}
+
+/** Length in minutes, or null for all-day / open-ended ones. */
+export function durationMin(m) {
+  if (!m.start_time || !m.end_time) return null;
+  const toMin = t => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; };
+  const d = toMin(m.end_time) - toMin(m.start_time);
+  return d > 0 ? d : null;
+}
+
+export function durationLabel(mins) {
+  if (!mins) return '';
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
+/** Which weekdays (0=Sun…6=Sat) a series runs on, for the M T W… pills. Monthly → null. */
+export function weekdaysOf(m) {
+  switch (m.recurrence) {
+    case 'daily': return [0, 1, 2, 3, 4, 5, 6];
+    case 'weekdays': return [1, 2, 3, 4, 5];
+    case 'weekly':
+    case 'biweekly': return daysOf(m);
+    default: return null;
+  }
+}

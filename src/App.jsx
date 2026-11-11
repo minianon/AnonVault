@@ -7,7 +7,6 @@ import TasksView from './components/TasksView';
 import BoardView from './components/BoardView';
 import QuotesView from './components/QuotesView';
 import CalendarView from './components/CalendarView';
-import MeetingsView from './components/MeetingsView';
 import DashboardView from './components/DashboardView';
 import ReviewView from './components/ReviewView';
 import CommandPalette from './components/CommandPalette';
@@ -15,6 +14,7 @@ import FocusView from './components/FocusView';
 import MoneyView from './components/MoneyView';
 import Logo from './components/Logo';
 import { ToastProvider, useToast } from './components/Toast';
+import GlobalTooltip from './components/GlobalTooltip';
 import { Lock, LockOpen, Delete } from 'lucide-react';
 import { 
   fetchApplications, 
@@ -1125,11 +1125,9 @@ function AppInner() {
               <div {...panel('calendar')}>
                 <CalendarView applications={applications} tasksVersion={tasksVersion} setActiveTab={setActiveTab}
                   onSelectHackathon={id => { setInitHackathonId(id); setActiveTab('timeline'); }}
+                  onOpenChecklistDate={d => { setInitTaskDate(d); setActiveTab('tasks'); }}
+                  onTasksChange={refreshPendingTasks}
                   onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
-              </div>
-
-              <div {...panel('meetings')}>
-                <MeetingsView onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
               </div>
 
               <div {...panel('quotes')}>
@@ -1225,6 +1223,7 @@ function AppInner() {
 function App() {
   return (
     <ToastProvider>
+      <GlobalTooltip />
       <AppInner />
     </ToastProvider>
   );

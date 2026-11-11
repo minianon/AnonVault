@@ -401,9 +401,8 @@ export function Donut({ parts, size = 148, thickness = 18, center, sub, format =
             <circle key={p.id} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={p.color} strokeWidth={hover === i ? thickness + 4 : thickness}
               strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offsets[i]}
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
-              style={{ transition: 'stroke-width .15s ease', cursor: 'default' }}>
-              <title>{`${p.label}: ${format(p.value)} (${Math.round((p.value / total) * 100)}%)`}</title>
-            </circle>
+              data-tip={`${p.label}: ${format(p.value)} (${Math.round((p.value / total) * 100)}%)`}
+              style={{ transition: 'stroke-width .15s ease', cursor: 'default' }} />
           );
         })}
       </svg>

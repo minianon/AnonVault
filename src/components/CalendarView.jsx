@@ -1,17 +1,20 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, CalendarRange, KanbanSquare, CalendarClock, CircleDollarSign, CheckSquare,
-  Plus, Check, ArrowUpRight, Timer, Video, ExternalLink, Repeat2,
+  Plus, Check, ArrowUpRight, Timer, Video, ExternalLink, Repeat2, ChevronDown, Wallet,
 } from 'lucide-react';
 import { board, addItem, moveItem, dueInfo } from '../services/board';
 import { emis, emiStats, payEmi, transactions, incomeSources, formatMoney, useMoneySettings, monthLabel, shiftMonth } from '../services/money';
 import { sessions, totalForDay, formatDuration, useFocusGoal } from '../services/focus';
-import { getAllTasksSync } from '../services/tasks';
+import { getTasksForDateSync, toggleTaskCompletion } from '../services/tasks';
 import { parseCapture, ymdOf } from '../services/nlp';
 import { addToChecklist } from '../utils/jump';
 import { PageHeader, Card, Empty, Segmented } from './ui';
 import { meetings as meetingStore, occurrencesBetween, timeRange, repeatLabel, linkHref } from '../services/meetings';
 import MeetingModal from './MeetingModal';
+import MeetingsView from './MeetingsView';
+
+const VIEW_OPTIONS = [{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }, { value: 'meetings', label: 'Meetings' }];
 
 const KINDS = {
   meeting:   { label: 'Meetings',  color: '#c49cff', icon: Video },
@@ -34,7 +37,61 @@ function monthGrid(key) {
   return Array.from({ length: 42 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
 }
 
-export default function CalendarView({ applications = [], tasksVersion, setActiveTab, onSelectHackathon, onLock, onMenuToggle, showToast }) {
+/* "+ New" in the header: add something on the selected day, or jump to
+   another section's own "new" form. */
+function NewMenu({ dayLabel, onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = e => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const onKey = e => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  const groups = [
+    { title: `On ${dayLabel}`, items: [
+      { id: 'meeting', icon: Video, label: 'Meeting', color: '#c49cff' },
+      { id: 'task', icon: CheckSquare, label: 'Checklist task', color: '#a1a1aa' },
+      { id: 'card', icon: KanbanSquare, label: 'Board card', hint: 'due that day', color: '#6c96ff' },
+    ] },
+    { title: 'Elsewhere', items: [
+      { id: 'expense', icon: Wallet, label: 'Expense', hint: 'Money', color: '#f5768a' },
+      { id: 'focus', icon: Timer, label: 'Focus session', hint: 'Focus', color: '#4fd1a0' },
+    ] },
+  ];
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}
+        className="btn-primary h-8 pl-2.5 pr-2 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5">
+        <Plus size={14} /><span className="hidden sm:inline">New</span><ChevronDown size={13} className={`opacity-70 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1.5 z-50 w-[240px] p-1 rounded-xl border border-white/[0.1]"
+          style={{ background: 'var(--surface-2)', boxShadow: 'var(--shadow-lg)', animation: 'selectIn 0.14s var(--ease) both', transformOrigin: 'top right' }}>
+          {groups.map((g, gi) => (
+            <div key={g.title} className={gi ? 'mt-1 pt-1 border-t border-white/[0.06]' : ''}>
+              <p className="px-2.5 pt-1.5 pb-1 text-[10.5px] uppercase tracking-wide text-slate-500">{g.title}</p>
+              {g.items.map(it => (
+                <button key={it.id} role="menuitem" onClick={() => { setOpen(false); onPick(it.id); }}
+                  className="w-full flex items-center gap-2.5 h-9 px-2.5 rounded-lg text-left text-[13px] text-slate-200 hover:bg-white/[0.06] cursor-pointer transition-colors">
+                  <span className="w-6 h-6 rounded-md flex items-center justify-center shrink-0" style={{ background: it.color + '22' }}>
+                    <it.icon size={13} style={{ color: it.color }} />
+                  </span>
+                  <span className="flex-1">{it.label}</span>
+                  {it.hint && <span className="text-[11px] text-slate-500">{it.hint}</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function CalendarView({ applications = [], tasksVersion, setActiveTab, onSelectHackathon, onOpenChecklistDate, onTasksChange, onLock, onMenuToggle, showToast }) {
   const today = ymdOf(new Date());
   const [month, setMonth] = useState(today.slice(0, 7));
   const [selected, setSelected] = useState(today);
@@ -48,6 +105,20 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
   const goal = useFocusGoal();
   // { meeting: existing|null, date, draft? } while the meeting editor is open
   const [meetingEdit, setMeetingEdit] = useState(null);
+  const addInputRef = useRef(null);
+
+  // Other screens can open a view directly (Today → "All meetings").
+  useEffect(() => {
+    const on = e => {
+      if (!VIEW_OPTIONS.some(o => o.value === e.detail)) return;
+      setView(e.detail);
+      try { localStorage.setItem('anonvault_calendar_view', e.detail); } catch { /* fine */ }
+    };
+    window.addEventListener('anonvault:calendar-view', on);
+    return () => window.removeEventListener('anonvault:calendar-view', on);
+  }, []);
+  // Ticks shown straight away while the save runs: { eventId: done }
+  const [ticking, setTicking] = useState({});
 
   const cards = board.useAll();
   const emiList = emis.useAll();
@@ -112,9 +183,13 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
       if (t.source_id && !sourceIds.has(t.source_id)) continue; // tick left behind by a deleted source
       push(t.date, { kind: 'income', id: t.id, title: t.note || 'Income', sub: '+' + fmt(t.amount) });
     }
-    for (const t of getAllTasksSync()) {
-      if (t.is_recurring || !t.date) continue;
-      push(t.date, { kind: 'task', id: t.id, title: t.title, done: !!t.completed });
+    // The whole checklist: one-off tasks on their date, repeating ones on
+    // every day they're due, each with that day's done state.
+    for (const d of days) {
+      const key = ymdOf(d);
+      for (const t of getTasksForDateSync(key)) {
+        push(key, { kind: 'task', id: t.id + key, title: t.title, done: !!t.completed, task: t, date: key, repeats: !!t.is_recurring, priority: t.priority });
+      }
     }
     for (const list of map.values()) {
       list.sort((a, b) => Number(!!a.done) - Number(!!b.done) || (a.time || '99').localeCompare(b.time || '99'));
@@ -122,10 +197,15 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     return map;
     // tasksVersion re-reads the checklist cache after edits elsewhere
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applications, cards, emiList, tx, sourceList, meetingList, rangeFrom, rangeTo, tasksVersion, settings.currency, today]);
+  }, [applications, cards, emiList, tx, sourceList, meetingList, days, rangeFrom, rangeTo, tasksVersion, settings.currency, today]);
 
-  const visible = date => (byDate.get(date) || []).filter(e => !hidden.has(e.kind));
+  const visible = date => (byDate.get(date) || [])
+    .filter(e => !hidden.has(e.kind))
+    .map(e => (e.kind === 'task' && ticking[e.id] !== undefined ? { ...e, done: ticking[e.id] } : e));
   const dayEvents = visible(selected);
+  const dayOthers = dayEvents.filter(e => e.kind !== 'task');
+  const dayTasks = dayEvents.filter(e => e.kind === 'task');
+  const dayTasksDone = dayTasks.filter(e => e.done).length;
   const selDate = new Date(selected + 'T00:00:00');
   const focusMs = totalForDay(focusList, selDate);
   const spent = tx.filter(t => t.type !== 'income' && t.date === selected).reduce((s, t) => s + Number(t.amount || 0), 0);
@@ -204,8 +284,36 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     else if (ev.kind === 'hackathon') onSelectHackathon?.(ev.id);
     else if (ev.kind === 'emi') { setActiveTab('money'); window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: 'emi' })); }
     else if (ev.kind === 'income') { setActiveTab('money'); window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: 'overview' })); }
-    else if (ev.kind === 'task') setActiveTab('tasks');
+    else if (ev.kind === 'task') { if (onOpenChecklistDate) onOpenChecklistDate(ev.date); else setActiveTab('tasks'); }
   };
+
+  /** Tick a checklist task for that day, right here. Not for days still to come. */
+  const tickTask = async ev => {
+    if (ev.date > today) return;
+    const next = !ev.done;
+    setTicking(t => ({ ...t, [ev.id]: next }));
+    try {
+      await toggleTaskCompletion(ev.task, ev.date, next);
+      onTasksChange?.();
+    } catch {
+      showToast?.('error', 'Could not update the task', ev.title);
+    } finally {
+      setTicking(t => { const n = { ...t }; delete n[ev.id]; return n; });
+    }
+  };
+
+  const pickNew = kind => {
+    if (kind === 'meeting') setMeetingEdit({ meeting: null, date: selected });
+    else if (kind === 'task' || kind === 'card') {
+      setAddAs(kind);
+      setTimeout(() => { addInputRef.current?.focus(); addInputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 0);
+    } else {
+      // Other sections open their own "new" form on this event.
+      setActiveTab(kind === 'expense' ? 'money' : 'focus');
+      setTimeout(() => window.dispatchEvent(new CustomEvent('anonvault:new')), 80);
+    }
+  };
+  const selectedLabel = selected === today ? 'today' : new Date(selected + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 
   const quickDone = ev => {
     if (ev.kind === 'card') {
@@ -217,6 +325,14 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
       showToast?.('success', `${monthLabel(r.month, { month: 'short' })} EMI paid`, ev.title, 6000, { label: 'Undo', onClick: r.undo });
     }
   };
+
+  // Meetings is the third view of the Calendar, with the same switcher on top.
+  if (view === 'meetings') {
+    return (
+      <MeetingsView onLock={onLock} onMenuToggle={onMenuToggle} showToast={showToast} title="Calendar"
+        viewSwitch={<Segmented size="sm" value={view} onChange={changeView} options={VIEW_OPTIONS} />} />
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -231,7 +347,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
         actions={<>
           <div className="hidden sm:block">
             <Segmented size="sm" value={view} onChange={changeView}
-              options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} />
+              options={VIEW_OPTIONS} />
           </div>
           <div className="flex items-center rounded-lg border border-white/[0.08] h-8">
             <button onClick={() => step(-1)} className="icon-btn !h-full !rounded-r-none" aria-label={`Previous ${view}`}><ChevronLeft size={14} /></button>
@@ -244,10 +360,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
             <button onClick={() => step(1)} className="icon-btn !h-full !rounded-l-none" aria-label={`Next ${view}`}><ChevronRight size={14} /></button>
           </div>
           <button onClick={() => go(today)} className="btn-ghost h-8 px-3 rounded-lg text-[13px] cursor-pointer">Today</button>
-          <button onClick={() => setMeetingEdit({ meeting: null, date: selected })}
-            className="btn-primary h-8 px-3 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5" title="New meeting">
-            <Plus size={14} /><span className="hidden sm:inline">Meeting</span>
-          </button>
+          <NewMenu dayLabel={selectedLabel} onPick={pickNew} />
         </>} />
 
       <div className="flex-1 overflow-y-auto">
@@ -256,7 +369,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="sm:hidden w-full mb-1">
               <Segmented size="sm" value={view} onChange={changeView}
-                options={[{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }]} />
+                options={VIEW_OPTIONS} />
             </div>
             {Object.entries(KINDS).map(([k, v]) => {
               const on = !hidden.has(k);
@@ -295,6 +408,10 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                     const key = ymdOf(d);
                     const inM = key.startsWith(month);
                     const evs = visible(key);
+                    const others = evs.filter(e => e.kind !== 'task');
+                    const evTasks = evs.filter(e => e.kind === 'task');
+                    const tasksDone = evTasks.filter(e => e.done).length;
+                    const slots = evTasks.length ? 2 : 3;
                     const isToday = key === today;
                     const isSel = key === selected;
                     const weekend = i % 7 >= 5;
@@ -313,7 +430,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                         </span>
                         {/* desktop: chips */}
                         <div className="hidden sm:block space-y-0.5 mt-0.5">
-                          {evs.slice(0, 3).map(ev => (
+                          {others.slice(0, slots).map(ev => (
                             <div key={ev.kind + ev.id} {...dragProps(ev)}
                               onClick={ev.kind === 'meeting' ? e => { e.stopPropagation(); setSelected(key); openEvent(ev); } : undefined}
                               className={`flex items-center gap-1 h-[18px] px-1 rounded text-[11px] truncate ${ev.done ? 'opacity-45 line-through' : ''} ${ev.kind === 'card' && !ev.done ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === ev.id ? 'opacity-30' : ''}`}
@@ -323,13 +440,22 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                               <span className="truncate">{ev.title}</span>
                             </div>
                           ))}
-                          {evs.length > 3 && <div className="text-[10.5px] text-slate-500 px-1">+{evs.length - 3} more</div>}
+                          {others.length > slots && <div className="text-[10.5px] text-slate-500 px-1">+{others.length - slots} more</div>}
+                          {evTasks.length > 0 && (
+                            <div className={`flex items-center gap-1 h-[18px] px-1 rounded text-[11px] tabular-nums ${key > today ? 'text-slate-400' : tasksDone === evTasks.length ? 'text-emerald-300' : 'text-slate-300'}`}
+                              style={{ background: tasksDone === evTasks.length && key <= today ? 'rgba(79,209,160,0.12)' : 'rgba(161,161,170,0.12)' }}
+                              title={`Checklist: ${key > today ? `${evTasks.length} due` : `${tasksDone} of ${evTasks.length} done`}`}>
+                              <CheckSquare size={10} className="shrink-0" />
+                              <span className="truncate">{key > today ? `${evTasks.length} task${evTasks.length === 1 ? '' : 's'}` : `${tasksDone}/${evTasks.length} tasks`}</span>
+                            </div>
+                          )}
                         </div>
                         {/* phone: dots */}
                         <div className="sm:hidden flex flex-wrap gap-0.5 mt-0.5 px-0.5">
-                          {evs.slice(0, 4).map(ev => (
+                          {others.slice(0, 3).map(ev => (
                             <span key={ev.kind + ev.id} className="w-1.5 h-1.5 rounded-full" style={{ background: KINDS[ev.kind].color, opacity: ev.done ? 0.4 : 1 }} />
                           ))}
+                          {evTasks.length > 0 && <span className="w-1.5 h-1.5 rounded-full" style={{ background: tasksDone === evTasks.length && key <= today ? 'var(--ok)' : KINDS.task.color }} />}
                         </div>
                         {/* focus time, against the daily goal */}
                         {ms > 0 && (
@@ -345,7 +471,10 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                 <div className="grid grid-cols-1 sm:grid-cols-7">
                   {days.map((d, i) => {
                     const key = ymdOf(d);
-                    const evs = visible(key);
+                    const evAll = visible(key);
+                    const evs = evAll.filter(e => e.kind !== 'task');
+                    const wTasks = evAll.filter(e => e.kind === 'task');
+                    const wDone = wTasks.filter(e => e.done).length;
                     const isSel = key === selected;
                     const ms = focusByDay.get(key) || 0;
                     const isDrop = dropKey === key;
@@ -381,8 +510,22 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                               {(ev.time || ev.sub) && <span className="block text-[10.5px] text-slate-500 truncate">{[ev.kind === 'meeting' ? null : ev.time, ev.sub].filter(Boolean).join(' · ')}</span>}
                             </div>
                           ))}
-                          {evs.length === 0 && <div className="hidden sm:block h-full min-h-[40px]" />}
-                          {evs.length === 0 && <p className="sm:hidden px-1 pb-1 text-[11.5px] text-slate-600">Nothing</p>}
+                          {wTasks.length > 0 && (
+                            <div className="mt-1.5 rounded-md border border-white/[0.06] bg-white/[0.02] px-1.5 py-1">
+                              <p className={`flex items-center gap-1 text-[10.5px] tabular-nums mb-0.5 ${wDone === wTasks.length && key <= today ? 'text-emerald-300' : 'text-slate-500'}`}>
+                                <CheckSquare size={10} /> {key > today ? `${wTasks.length} due` : `${wDone}/${wTasks.length} done`}
+                              </p>
+                              {wTasks.slice(0, 6).map(ev => (
+                                <p key={ev.id} className={`flex items-center gap-1 text-[11px] leading-[18px] truncate ${ev.done ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
+                                  <span className={`w-[9px] h-[9px] rounded-[3px] shrink-0 border ${ev.done ? 'bg-[var(--ok)] border-[var(--ok)]' : 'border-white/30'}`} />
+                                  <span className="truncate">{ev.title}</span>
+                                </p>
+                              ))}
+                              {wTasks.length > 6 && <p className="text-[10.5px] text-slate-500">+{wTasks.length - 6} more</p>}
+                            </div>
+                          )}
+                          {evAll.length === 0 && <div className="hidden sm:block h-full min-h-[40px]" />}
+                          {evAll.length === 0 && <p className="sm:hidden px-1 pb-1 text-[11.5px] text-slate-600">Nothing</p>}
                         </div>
                       </div>
                     );
@@ -409,7 +552,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
               <form onSubmit={addOnDay} className="px-3 pt-3">
                 <div className="flex items-center gap-2 h-9 px-2.5 rounded-lg border border-dashed border-white/[0.1] focus-within:border-white/[0.2] focus-within:border-solid transition-colors">
                   <Plus size={14} className="text-slate-500" />
-                  <input value={draft} onChange={e => setDraft(e.target.value)} placeholder={addAs === 'task' ? 'Add a task on this day…' : addAs === 'meeting' ? 'Add a meeting… e.g. standup at 10' : 'Add a card on this day…'}
+                  <input ref={addInputRef} value={draft} onChange={e => setDraft(e.target.value)} placeholder={addAs === 'task' ? 'Add a task on this day…' : addAs === 'meeting' ? 'Add a meeting… e.g. standup at 10' : 'Add a card on this day…'}
                     className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-100 placeholder:text-slate-500 outline-none" />
                   <div className="flex items-center p-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] shrink-0" role="radiogroup" aria-label="Add as">
                     {[['card', 'Card'], ['task', 'Task'], ['meeting', 'Meeting']].map(([v, l]) => (
@@ -421,10 +564,10 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
               </form>
 
               {dayEvents.length === 0 ? (
-                <Empty icon={CalendarRange} title="Nothing on this day" body="Meetings, Board cards with a due date, hackathon deadlines, EMIs and income all show up here." />
-              ) : (
+                <Empty icon={CalendarRange} title="Nothing on this day" body="Meetings, your checklist, Board cards with a due date, hackathon deadlines, EMIs and income all show up here." />
+              ) : dayOthers.length > 0 && (
                 <ul className="p-2">
-                  {dayEvents.map(ev => {
+                  {dayOthers.map(ev => {
                     const K = KINDS[ev.kind];
                     const canTick = (ev.kind === 'card' || ev.kind === 'emi') && !ev.done;
                     return (
@@ -457,6 +600,49 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                     );
                   })}
                 </ul>
+              )}
+
+              {dayTasks.length > 0 && (
+                <div className={`px-2 pb-2 ${dayOthers.length ? 'border-t border-white/[0.06] pt-1' : 'pt-2'}`}>
+                  <div className="flex items-center gap-2 px-2 pt-1.5 pb-1">
+                    <CheckSquare size={13} className="text-slate-500" />
+                    <span className="text-[12.5px] font-medium text-slate-200">Checklist</span>
+                    <span className="text-[11.5px] text-slate-500 tabular-nums">
+                      {selected > today ? `${dayTasks.length} due` : `${dayTasksDone}/${dayTasks.length} done`}
+                    </span>
+                    <button onClick={() => (onOpenChecklistDate ? onOpenChecklistDate(selected) : setActiveTab('tasks'))}
+                      className="ml-auto text-[11.5px] text-slate-500 hover:text-slate-200 cursor-pointer inline-flex items-center gap-0.5">
+                      Open <ChevronRight size={12} />
+                    </button>
+                  </div>
+                  {selected <= today && (
+                    <div className="mx-2 mb-1.5 h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                      <div className="h-full rounded-full transition-[width] duration-300"
+                        style={{ width: `${(dayTasksDone / dayTasks.length) * 100}%`, background: dayTasksDone === dayTasks.length ? 'var(--ok)' : 'rgba(255,255,255,0.45)' }} />
+                    </div>
+                  )}
+                  <ul>
+                    {dayTasks.map(ev => {
+                      const future = ev.date > today;
+                      return (
+                        <li key={ev.id} className="flex items-center gap-2.5 px-2 min-h-[36px] rounded-lg hover:bg-white/[0.03] transition-colors">
+                          <button type="button" role="checkbox" aria-checked={ev.done} disabled={future} onClick={() => tickTask(ev)}
+                            title={future ? 'You can tick this on the day' : ev.done ? 'Mark not done' : 'Mark done'}
+                            className={`w-[17px] h-[17px] rounded-[5px] shrink-0 flex items-center justify-center border transition-colors ${
+                              future ? 'border-white/[0.12] cursor-not-allowed' : 'cursor-pointer'} ${
+                              ev.done ? 'bg-slate-100 border-slate-100 text-slate-950' : 'border-white/[0.25] hover:border-white/[0.5]'}`}>
+                            {ev.done && <Check size={11} strokeWidth={3} />}
+                          </button>
+                          <button onClick={() => openEvent(ev)} className="flex-1 min-w-0 text-left cursor-pointer flex items-center gap-1.5">
+                            <span className={`text-[13px] truncate ${ev.done ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{ev.title}</span>
+                            {ev.repeats && <Repeat2 size={11} className="text-slate-600 shrink-0" />}
+                          </button>
+                          {ev.priority === 'high' && !ev.done && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" title="High priority" />}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
             </Card>
           </div>
