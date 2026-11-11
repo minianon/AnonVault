@@ -7,6 +7,7 @@ import TasksView from './components/TasksView';
 import BoardView from './components/BoardView';
 import QuotesView from './components/QuotesView';
 import CalendarView from './components/CalendarView';
+import MeetingsView from './components/MeetingsView';
 import DashboardView from './components/DashboardView';
 import ReviewView from './components/ReviewView';
 import CommandPalette from './components/CommandPalette';
@@ -31,6 +32,7 @@ import { board, addItem as addBoardItem } from './services/board';
 import { ideas as ideaStore, stepsIn } from './services/ideas';
 import { quotes as quoteStore } from './services/quotes';
 import { sessions as focusStore } from './services/focus';
+import { meetings as meetingStore, meetingsOn } from './services/meetings';
 import { syncPrefs } from './services/prefs';
 import { onSyncIssue } from './services/syncStatus';
 
@@ -55,6 +57,7 @@ function syncLocalFirstStores() {
     companies.sync(),
     board.sync(),
     quoteStore.sync(),
+    meetingStore.sync(),
   ]);
 }
 
@@ -518,6 +521,7 @@ function AppInner() {
   // Data states
   const [applications, setApplications] = useState([]);
   const ideas = ideaStore.useAll();
+  const meetingList = meetingStore.useAll();
   const [projectIdeas, setProjectIdeas] = useState([]);
   const [projectIdeasCount, setProjectIdeasCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -765,6 +769,7 @@ function AppInner() {
       companies: () => companies.sync(),
       board_items: () => board.sync(),
       quotes: () => quoteStore.sync(),
+      meetings: () => meetingStore.sync(),
       applications: reloadApps,
       project_ideas: reloadProjectIdeas,
     };
@@ -1028,6 +1033,7 @@ function AppInner() {
     completedTasks: taskStats.completed,
     totalProjectIdeas: projectIdeasCount,
     boardOpen: boardItems.filter(i => i.status !== 'done').length,
+    meetingsToday: meetingsOn(meetingList, todayDateStr()).length,
   };
 
 
@@ -1120,6 +1126,10 @@ function AppInner() {
                 <CalendarView applications={applications} tasksVersion={tasksVersion} setActiveTab={setActiveTab}
                   onSelectHackathon={id => { setInitHackathonId(id); setActiveTab('timeline'); }}
                   onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
+              </div>
+
+              <div {...panel('meetings')}>
+                <MeetingsView onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
               </div>
 
               <div {...panel('quotes')}>

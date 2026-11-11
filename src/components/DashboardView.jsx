@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Check, ChevronRight, ChevronLeft, Plus, Repeat2, Play, Square, CalendarClock, KanbanSquare, Wallet, Quote, Receipt, CircleDollarSign,
-  CheckSquare, Timer, ArrowUpRight, ArrowDownRight, Flame, X, CornerDownLeft,
+  CheckSquare, Timer, ArrowUpRight, ArrowDownRight, X, CornerDownLeft,
 } from 'lucide-react';
 import {
   getTasksForDate, getTasksForDateSync, toggleTaskCompletion, toggleSubtaskCompletion,
-  getStreaks, getCompletionHistory, getHackathonProgress,
+  getStreakDetails, getCompletionHistory, getHackathonProgress,
 } from '../services/tasks';
 import {
   sessions, isRunning, durationMs, totalForDay, formatDuration, useNow, startSession, stopSession, recentLabels,
@@ -16,7 +16,8 @@ import {
 } from '../services/money';
 import { board, dueInfo, moveItem } from '../services/board';
 import { quotes, dayOffset } from '../services/quotes';
-import { PageHeader, Card, CardHeader, LinkButton, Stat, Progress, Empty } from './ui';
+import { PageHeader, Card, CardHeader, LinkButton, Stat, Progress, Empty, StreakIcon } from './ui';
+import MeetingsToday from './MeetingsToday';
 
 const QUICK_ACTIONS = [
   { id: 'task', label: 'Task', icon: Plus, inline: true },
@@ -203,10 +204,14 @@ export default function DashboardView({
   const done = tasks.filter(t => t.completed).length;
 
   const pulse = useMemo(() => {
-    const streaks = getStreaks(180);
+    const streaks = getStreakDetails(180, 0);
     const history = getCompletionHistory(7);
     const totals = history.reduce((a, d) => ({ s: a.s + d.scheduled, c: a.c + d.completed }), { s: 0, c: 0 });
-    return { streak: streaks.current, weekRate: totals.s ? Math.round((totals.c / totals.s) * 100) : null };
+    const left = streaks.today.due - streaks.today.done;
+    const streakHint = streaks.today.state === 'progress' ? `${left} left today to make it ${streaks.current + 1}`
+      : streaks.today.state === 'clean' ? 'Today done — streak safe'
+      : 'Days with every task done';
+    return { streak: streaks.current, streakHint, weekRate: totals.s ? Math.round((totals.c / totals.s) * 100) : null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasksVersion]);
 
@@ -406,8 +411,8 @@ export default function DashboardView({
               hint={running.length ? `${running.length} running now` : 'No timer running'} tone={running.length ? 'good' : undefined} />
             <Stat label="Spent today" value={fmt(spentToday)} onClick={() => setActiveTab('money')}
               hint={budget ? `${fmt(Math.max(0, budget - month.expense))} left this month` : `${fmt(month.expense)} this month`} />
-            <Stat label="Streak" value={<span className="inline-flex items-center gap-1.5">{pulse.streak}<Flame size={16} className={pulse.streak ? 'text-amber-400' : 'text-slate-600'} /></span>}
-              onClick={() => setActiveTab('review')} hint="Days with every task done" />
+            <Stat label="Streak" value={<span className="inline-flex items-center gap-1.5">{pulse.streak}<StreakIcon active={pulse.streak > 0} size={15} /></span>}
+              onClick={() => setActiveTab('tasks')} hint={pulse.streakHint} />
           </div>
 
           <QuoteRotator onOpen={() => setActiveTab('quotes')} />
@@ -500,6 +505,9 @@ export default function DashboardView({
             </div>
 
             <div className="space-y-5 min-w-0">
+              {/* Meetings */}
+              <MeetingsToday setActiveTab={setActiveTab} showToast={showToast} />
+
               {/* Focus */}
               <Card>
                 <CardHeader icon={Timer} title="Now" meta={focusedToday ? formatDuration(focusedToday) + ' today' : null}

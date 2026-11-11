@@ -11,11 +11,12 @@ import {
 import { useShortcutHooks } from '../utils/useShortcutHooks';
 import { Play as PlayIcon, Square as StopIcon } from 'lucide-react';
 import { sessions as focusSessions, startSession, stopSession, durationMs, formatDuration, useNow } from '../services/focus';
-import { getHabitGrid } from '../services/tasks';
-import { Flame as FlameIcon, Grid3x3 } from 'lucide-react';
+import { getHabitGrid, getStreakDetails } from '../services/tasks';
+import { Zap } from 'lucide-react';
 import { getNote, setNote } from '../services/journal';
 import { usePref, getPref } from '../services/prefs';
-import { PageHeader, Card, CardHeader, Empty, Progress, Select, Modal } from './ui';
+import { PageHeader, Card, CardHeader, Empty, Progress, Select, Modal, StreakIcon } from './ui';
+import { useHoverTip } from '../utils/useHoverTip';
 import { EditorLayout, PropRow, TitleInput, SectionTitle, DueField, ComposerShell } from './editor';
 import { parseCapture, parseRepeat, formatWhen } from '../services/nlp';
 
@@ -94,49 +95,290 @@ function RunningPill({ run }) {
   );
 }
 
-/* Every recurring task as a strip of days: green done, red missed, empty
-   when it wasn't due. Patterns jump out — "Gym never happens on Mondays". */
-const HABIT_COLORS = { done: 'var(--ok)', missed: 'rgba(245,118,138,0.45)', pending: 'rgba(255,255,255,0.18)', off: 'transparent' };
-function HabitHeatmap({ version, selected, onPickDate }) {
-  const [days, setDays] = useState(30);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => getHabitGrid(days), [days, version]);
-  if (!rows.length) return null;
-  const pctOf = r => (r == null ? '—' : Math.round(r * 100) + '%');
+/* Streaks and habits, at the bottom of Checklist.
+
+   Top: the overall streak (days in a row with every task done), how today
+   stands, and the next milestone. Then a calendar heatmap — weeks across,
+   Mon–Sun down, greener the more got done — for every task together or
+   for one habit. Below it, each recurring task with its last 7 days, its
+   streak and how often it gets done; click one to see its own heatmap. */
+const HEAT = {
+  empty:  'rgba(255,255,255,0.045)',
+  missed: 'rgba(245,118,138,0.38)',
+  l1: 'rgba(79,209,160,0.22)',
+  l2: 'rgba(79,209,160,0.42)',
+  l3: 'rgba(79,209,160,0.68)',
+  l4: 'var(--ok)',
+};
+const HEAT_RANGES = [{ value: 91, label: '3M' }, { value: 182, label: '6M' }, { value: 365, label: '1Y' }];
+const WEEKDAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+const fmtDay = d => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+/** Overall day → heat level. */
+function overallLevel(c) {
+  if (c.state === 'none') return 'empty';
+  if (c.state === 'today') return c.done ? (c.done / c.due < 0.5 ? 'l1' : 'l2') : 'today';
+  if (c.done === 0) return 'missed';
+  const r = c.done / c.due;
+  return r >= 1 ? 'l4' : r >= 0.67 ? 'l3' : r >= 0.34 ? 'l2' : 'l1';
+}
+const habitLevel = c => (c.state === 'done' ? 'l4' : c.state === 'missed' ? 'missed' : c.state === 'pending' ? 'today' : 'empty');
+
+/** GitHub-style grid: one column per week (Mon at the top), month names above. */
+function CalendarHeatmap({ cells, selected, onPickDate, describe }) {
+  const gap = 3;
+  const tip = useHoverTip();
+  const scrollRef = useRef(null);
+  const [width, setWidth] = useState(0);
+  // Squares grow to fill the card (up to 22px); a year on a phone scrolls.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const weeks = useMemo(() => {
+    if (!cells.length) return [];
+    const first = new Date(cells[0].date + 'T00:00:00');
+    const lead = (first.getDay() + 6) % 7; // blanks before the first Monday
+    const flat = [...Array(lead).fill(null), ...cells];
+    while (flat.length % 7) flat.push(null); // rest of this week (future)
+    const out = [];
+    for (let i = 0; i < flat.length; i += 7) out.push(flat.slice(i, i + 7));
+    return out;
+  }, [cells]);
+
+  const cell = width ? Math.max(10, Math.min(22, Math.floor((width - 30) / Math.max(1, weeks.length)) - gap)) : 12;
+  // Start scrolled to today (the right edge) when it doesn't fit.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [cells.length, cell]);
+
+  // Month name over the first week that contains the 1st (and the first column).
+  const monthAt = weeks.map((w, i) => {
+    const firstOfMonth = w.find(c => c && c.date.endsWith('-01'));
+    if (firstOfMonth) return new Date(firstOfMonth.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short' });
+    if (i === 0) {
+      const c = w.find(Boolean);
+      // Skip the label if a new month starts within two columns (avoids overlap).
+      const soon = weeks.slice(1, 3).some(x => x.some(y => y && y.date.endsWith('-01')));
+      return c && !soon ? new Date(c.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short' }) : '';
+    }
+    return '';
+  });
+
   return (
-    <Card className="overflow-hidden">
-      <CardHeader icon={Grid3x3} title="Habits" meta={rows.length}
-        action={<div className="flex items-center gap-0.5 p-0.5 rounded-md bg-white/[0.04] border border-white/[0.06]">
-          {[14, 30, 60].map(n => (
-            <button key={n} onClick={() => setDays(n)} aria-pressed={days === n}
-              className={`h-6 px-2 rounded text-[11.5px] cursor-pointer transition-colors ${days === n ? 'bg-white/[0.1] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{n}d</button>
+    <div ref={scrollRef} className="overflow-x-auto pb-1 -mx-1 px-1">
+      <div className="inline-flex flex-col min-w-max">
+        <div className="flex" style={{ paddingLeft: 30, height: 16 }}>
+          {weeks.map((_, i) => (
+            <div key={i} className="relative shrink-0" style={{ width: cell + gap }}>
+              {monthAt[i] && <span className="absolute left-0 top-0 text-[10.5px] text-slate-500 whitespace-nowrap">{monthAt[i]}</span>}
+            </div>
           ))}
-        </div>} />
-      <div className="px-4 pb-4 space-y-3">
-        {rows.map(r => (
-          <div key={r.id} className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4">
-            <div className="sm:w-48 shrink-0 min-w-0 flex items-baseline gap-2">
-              <span className="text-[13px] text-slate-200 truncate" title={r.title}>{r.title}</span>
-              <span className={`text-[12px] tabular-nums shrink-0 ${r.rate == null ? 'text-slate-600' : r.rate >= 0.8 ? 'text-emerald-400' : r.rate < 0.4 ? 'text-rose-400' : 'text-amber-400'}`}>{pctOf(r.rate)}</span>
-              {r.streak > 1 && <span className="inline-flex items-center gap-0.5 text-[11.5px] text-amber-400 tabular-nums shrink-0"><FlameIcon size={11} />{r.streak}</span>}
-            </div>
-            <div className="flex-1 flex gap-[2px] min-w-0" role="list" aria-label={`${r.title}, last ${days} days`}>
-              {r.cells.map(c => (
-                <button key={c.date} role="listitem" onClick={() => onPickDate?.(c.date)}
-                  title={`${new Date(c.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} — ${c.state === 'off' ? 'not due' : c.state === 'pending' ? 'due today' : c.state}`}
-                  className={`flex-1 min-w-0 h-4 rounded-[3px] cursor-pointer transition-transform hover:scale-y-125 ${c.state === 'off' ? 'border border-white/[0.06]' : ''} ${c.date === selected ? 'ring-1 ring-white/60' : ''}`}
-                  style={{ background: HABIT_COLORS[c.state] }} />
-              ))}
-            </div>
+        </div>
+        <div className="flex">
+          <div className="flex flex-col shrink-0" style={{ width: 30, gap }}>
+            {WEEKDAY_LABELS.map((l, i) => (
+              <span key={i} className="text-[10px] text-slate-500 leading-none flex items-center" style={{ height: cell }}>{l}</span>
+            ))}
           </div>
-        ))}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 border-t border-white/[0.05] text-[11.5px] text-slate-500">
-          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: HABIT_COLORS.done }} />Done</span>
-          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: HABIT_COLORS.missed }} />Missed</span>
-          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] border border-white/[0.1]" />Not due</span>
-          <span className="ml-auto hidden sm:inline">Click a day to open it</span>
+          <div className="flex" style={{ gap }}>
+            {weeks.map((w, wi) => (
+              <div key={wi} className="flex flex-col" style={{ gap }}>
+                {w.map((c, di) => c ? (
+                  <button key={c.date} type="button" onClick={() => onPickDate?.(c.date)}
+                    {...tip.bind(fmtDay(c.date), describe(c))} aria-label={`${fmtDay(c.date)}: ${describe(c)}`}
+                    className={`rounded-[3px] cursor-pointer transition-[transform,box-shadow] hover:scale-[1.25] hover:z-10 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]
+                      ${c.level === 'today' ? 'border border-dashed border-white/35' : ''}
+                      ${c.date === selected ? 'ring-[1.5px] ring-white/80' : ''}`}
+                    style={{ width: cell, height: cell, background: c.level === 'today' ? 'transparent' : HEAT[c.level] }} />
+                ) : <span key={'x' + di} style={{ width: cell, height: cell }} />)}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+      {tip.node}
+    </div>
+  );
+}
+
+/** Last 7 days of one habit as dots, oldest first. */
+function WeekDots({ cells, tip }) {
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {cells.slice(-7).map(c => (
+        <span key={c.date} {...tip.bind(fmtDay(c.date), c.state === 'off' ? 'Not due' : c.state === 'pending' ? 'Due today' : c.state === 'done' ? 'Done' : 'Missed')}
+          className={`w-[14px] h-[14px] rounded-full flex items-center justify-center ${
+            c.state === 'done' ? 'bg-[var(--ok)] text-slate-950'
+            : c.state === 'missed' ? 'border border-rose-400/60'
+            : c.state === 'pending' ? 'border border-dashed border-white/40'
+            : ''}`}>
+          {c.state === 'done' && <Check size={9} strokeWidth={3.5} />}
+          {c.state === 'off' && <span className="w-[4px] h-[4px] rounded-full bg-white/15" />}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function HabitHeatmap({ version, selected, onPickDate }) {
+  const [range, setRange] = useState(() => {
+    const saved = Number(localStorage.getItem('anonvault_heatmap_range'));
+    return HEAT_RANGES.some(r => r.value === saved) ? saved : 182;
+  });
+  const [subject, setSubject] = useState('all'); // 'all' or a habit's task id
+  const tip = useHoverTip();
+  const changeRange = v => { setRange(v); try { localStorage.setItem('anonvault_heatmap_range', String(v)); } catch { /* fine */ } };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => getHabitGrid(range, 365), [range, version]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const st = useMemo(() => getStreakDetails(365, range), [range, version]);
+  if (!rows.length && !st.longest && !st.today.due) return null;
+
+  const habit = subject === 'all' ? null : rows.find(r => r.id === subject) || null;
+  const heatCells = habit
+    ? habit.cells.map(c => ({ ...c, level: habitLevel(c) }))
+    : st.days.map(c => ({ ...c, level: overallLevel(c) }));
+  const describe = habit
+    ? c => (c.state === 'off' ? 'not due' : c.state === 'pending' ? 'due today' : c.state)
+    : c => (c.state === 'none' ? 'nothing due' : c.state === 'today' ? `${c.done} of ${c.due} done so far` : `${c.done} of ${c.due} done`);
+
+  // Footer line, like "48 clean days in the last 6 months".
+  const rangeLabel = range <= 91 ? '3 months' : range <= 182 ? '6 months' : 'year';
+  const summary = habit
+    ? `${habit.cells.filter(c => c.state === 'done').length} times done in the last ${rangeLabel}${habit.rate != null ? ` · ${Math.round(habit.rate * 100)}% of due days` : ''}`
+    : `${st.days.filter(c => c.state === 'clean').length} clean days in the last ${rangeLabel}`;
+
+  const left = st.today.due - st.today.done;
+  const todayLine = st.today.state === 'none' ? 'Nothing due today — your streak carries on.'
+    : st.today.state === 'clean' ? (st.current > 1 ? `All done. ${st.current} days in a row.` : 'All done today. Streak started.')
+    : `${left} task${left === 1 ? '' : 's'} left to make it ${st.current + 1}.`;
+  const mile = st.next;
+  const milePct = mile ? (st.current - mile.from) / (mile.at - mile.from) : 1;
+  const pctOf = r => (r == null ? '—' : Math.round(r * 100) + '%');
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader icon={Zap} title="Streaks & habits" />
+
+      {/* Overall streak, today, next milestone */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px mx-4 mb-4 rounded-xl overflow-hidden border border-white/[0.06] bg-white/[0.06]">
+        <div className="bg-[var(--surface)] px-4 py-3">
+          <p className="text-[11.5px] text-slate-500">Current streak</p>
+          <p className="mt-0.5 flex items-center gap-1.5">
+            <span className="text-[26px] leading-8 font-semibold tabular-nums text-slate-50">{st.current}</span>
+            <StreakIcon active={st.current > 0} size={18} />
+            <span className="text-[12.5px] text-slate-500 ml-0.5">day{st.current === 1 ? '' : 's'}</span>
+          </p>
+          <p className="text-[11.5px] text-slate-500 mt-0.5">
+            {st.best && st.current > 1
+              ? <span className="text-emerald-300">Personal best</span>
+              : <>Best <span className="tabular-nums text-slate-300">{st.longest}</span></>}
+            <span className="text-slate-600"> · every task done</span>
+          </p>
+        </div>
+        <div className="bg-[var(--surface)] px-4 py-3">
+          <p className="text-[11.5px] text-slate-500">Today</p>
+          <p className="mt-0.5 text-[20px] leading-8 font-semibold tabular-nums text-slate-100">
+            {st.today.due ? <>{st.today.done}<span className="text-slate-500 text-[15px]">/{st.today.due}</span></> : '—'}
+          </p>
+          {st.today.due > 0 && <Progress className="mt-1" value={st.today.done / st.today.due} tone={st.today.state === 'clean' ? 'good' : 'neutral'} height={3} />}
+          <p className={`text-[11.5px] mt-1.5 ${st.today.state === 'clean' ? 'text-emerald-300' : st.today.state === 'progress' ? 'text-amber-300' : 'text-slate-500'}`}>{todayLine}</p>
+        </div>
+        <div className="bg-[var(--surface)] px-4 py-3">
+          <p className="text-[11.5px] text-slate-500">Next milestone</p>
+          {mile ? (
+            <>
+              <p className="mt-0.5 text-[20px] leading-8 font-semibold tabular-nums text-slate-100">{mile.at} <span className="text-[13px] font-normal text-slate-500">days</span></p>
+              <Progress className="mt-1" value={milePct} height={3} />
+              <p className="text-[11.5px] text-slate-500 mt-1.5">{mile.at - st.current} more clean day{mile.at - st.current === 1 ? '' : 's'} to go</p>
+            </>
+          ) : <p className="mt-1 text-[13px] text-emerald-300">Every milestone reached.</p>}
+        </div>
+      </div>
+
+      {/* Heatmap */}
+      <div className="px-4 pb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="flex items-center gap-1 min-w-0 overflow-x-auto flex-1 -mx-1 px-1">
+            {[{ id: 'all', title: 'Every task' }, ...rows].map(r => (
+              <button key={r.id} onClick={() => setSubject(r.id)} aria-pressed={subject === r.id}
+                className={`h-7 px-2.5 rounded-md text-[12px] whitespace-nowrap cursor-pointer border transition-colors ${
+                  subject === r.id ? 'bg-white/[0.08] border-white/[0.14] text-slate-100' : 'border-transparent text-slate-500 hover:text-slate-200'}`}>
+                {r.title}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] shrink-0">
+            {HEAT_RANGES.map(r => (
+              <button key={r.value} onClick={() => changeRange(r.value)} aria-pressed={range === r.value}
+                className={`h-6 px-2 rounded text-[11.5px] cursor-pointer transition-colors ${range === r.value ? 'bg-white/[0.1] text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}>{r.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <CalendarHeatmap cells={heatCells} selected={selected} onPickDate={onPickDate} describe={describe} />
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2.5 text-[11.5px] text-slate-500">
+          <span>{summary}</span>
+          {/* Gray = nothing was due that day (e.g. a weekly habit's other days), not a miss. */}
+          <span className="ml-auto inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="inline-flex items-center gap-1.5"><span className="w-[11px] h-[11px] rounded-[3px]" style={{ background: HEAT.empty }} />Not due</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-[11px] h-[11px] rounded-[3px]" style={{ background: HEAT.missed }} />Missed</span>
+            {habit ? (
+              <span className="inline-flex items-center gap-1.5"><span className="w-[11px] h-[11px] rounded-[3px]" style={{ background: HEAT.l4 }} />Done</span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <span className="mr-0.5">Less</span>
+                {['l1', 'l2', 'l3', 'l4'].map(l => <span key={l} className="w-[11px] h-[11px] rounded-[3px]" style={{ background: HEAT[l] }} />)}
+                <span className="ml-0.5">More done</span>
+              </span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Habits */}
+      {rows.length > 0 && (
+        <div className="border-t border-white/[0.06]">
+          <div className="flex items-center gap-3 px-4 h-9 text-[11px] text-slate-500 uppercase tracking-wide">
+            <span className="flex-1">Habits</span>
+            <span className="hidden sm:flex items-center gap-1.5 shrink-0 normal-case tracking-normal">
+              {(rows[0]?.cells || []).slice(-7).map(c => (
+                <span key={c.date} className="w-[14px] text-center">{new Date(c.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'narrow' })}</span>
+              ))}
+            </span>
+            <span className="w-[64px] text-right shrink-0">Streak</span>
+            <span className="w-[40px] text-right shrink-0">Done</span>
+          </div>
+          <ul className="pb-2">
+            {rows.map(r => (
+              <li key={r.id}>
+                <button onClick={() => setSubject(subject === r.id ? 'all' : r.id)} aria-pressed={subject === r.id}
+                  className={`w-full flex items-center gap-3 px-4 min-h-[40px] py-1.5 text-left cursor-pointer transition-colors ${
+                    subject === r.id ? 'bg-white/[0.05]' : 'hover:bg-white/[0.025]'}`}>
+                  <span className="flex-1 min-w-0 text-[13px] text-slate-200 truncate">{r.title}</span>
+                  <span className="hidden sm:block"><WeekDots cells={r.cells} tip={tip} /></span>
+                  <span className={`w-[64px] shrink-0 inline-flex items-center justify-end gap-1 text-[12px] tabular-nums ${r.streak ? 'text-slate-100' : 'text-slate-600'}`}
+                    {...tip.bind(`${r.streak} day streak`, `Best ${r.best}`)}>
+                    <StreakIcon active={r.streak > 0} size={11} />{r.streak}
+                    {r.best > r.streak && <span className="text-slate-600 text-[11px]">/{r.best}</span>}
+                  </span>
+                  <span className={`w-[40px] shrink-0 text-right text-[12px] tabular-nums ${r.rate == null ? 'text-slate-600' : r.rate >= 0.8 ? 'text-emerald-400' : r.rate < 0.4 ? 'text-rose-400' : 'text-amber-400'}`}
+                    {...tip.bind(`${pctOf(r.rate)} done`, `of due days in the last ${rangeLabel}`)}>{pctOf(r.rate)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {tip.node}
     </Card>
   );
 }

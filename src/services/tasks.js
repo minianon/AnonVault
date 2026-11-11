@@ -41,6 +41,7 @@
 import { getSupabaseClient } from './supabase';
 import { newId } from './localStore';
 import { reportSyncIssue, missingColumnIn } from './syncStatus';
+import { getPref } from './prefs';
 
 const TASKS_KEY    = 'anonvault_tasks';
 const COMPLETE_KEY = 'anonvault_task_completions';
@@ -600,6 +601,17 @@ function createdOnOrBefore(task, dateStr) {
   return `${y}-${m}-${d}` <= dateStr;
 }
 
+/** Tasks cancelled for a day (Checklist → "Cancel for today"), as { taskId: { date: true } }. */
+function loadCancelled() {
+  const map = getPref('anonvault_task_cancelled', null) ?? getPref('anonvault_task_ignored', {});
+  return map && typeof map === 'object' ? map : {};
+}
+
+/** Was this task due on this day (scheduled, existed, not cancelled for it)? */
+function dueOn(task, dateStr, cancelled) {
+  return taskAppliesOnDate(task, dateStr) && createdOnOrBefore(task, dateStr) && !cancelled[task.id]?.[dateStr];
+}
+
 function isDoneOn(task, dateStr, completions) {
   return task.is_recurring
     ? !!(completions[task.id]?.[dateStr])
@@ -610,11 +622,12 @@ function isDoneOn(task, dateStr, completions) {
 export function getCompletionHistory(days = 30, end = 0) {
   const tasks = loadLocalTasks();
   const completions = loadCompletions();
+  const cancelled = loadCancelled();
   const out = [];
 
   for (let i = end - (days - 1); i <= end; i++) {
     const date = dateStrOffset(i);
-    const due = tasks.filter(t => taskAppliesOnDate(t, date) && createdOnOrBefore(t, date));
+    const due = tasks.filter(t => dueOn(t, date, cancelled));
     const done = due.filter(t => isDoneOn(t, date, completions));
     out.push({
       date,
@@ -630,6 +643,7 @@ export function getCompletionHistory(days = 30, end = 0) {
 export function getTaskReliability(days = 30, end = 0) {
   const tasks = loadLocalTasks().filter(t => t.is_recurring);
   const completions = loadCompletions();
+  const cancelled = loadCancelled();
 
   return tasks
     .map(t => {
@@ -637,7 +651,7 @@ export function getTaskReliability(days = 30, end = 0) {
       let completed = 0;
       for (let i = end - (days - 1); i <= end; i++) {
         const date = dateStrOffset(i);
-        if (!taskAppliesOnDate(t, date) || !createdOnOrBefore(t, date)) continue;
+        if (!dueOn(t, date, cancelled)) continue;
         scheduled++;
         if (isDoneOn(t, date, completions)) completed++;
       }
@@ -657,64 +671,116 @@ export function getTaskReliability(days = 30, end = 0) {
 
 /**
  * One row per recurring task for the last `days` days, oldest first:
- * each day is 'done', 'missed', 'off' (not scheduled that day, or before the
- * task existed) — plus the hit rate and the current run of done days.
+ * each day is 'done', 'missed', 'off' (not due — not scheduled, cancelled,
+ * or before the task existed) or 'pending' (due today, not done yet).
+ *
+ * Streaks are worked out over the last `historyDays` (not just the window
+ * on screen), so a 40-day habit doesn't read as 14 in the 14-day view.
+ *   streak  current run of done days (today only adds once it's done)
+ *   best    longest run in that history
+ *   today   'done' | 'pending' | 'off'
  */
-export function getHabitGrid(days = 30) {
+export function getHabitGrid(days = 30, historyDays = 180) {
   const tasks = loadLocalTasks().filter(t => t.is_recurring);
   const completions = loadCompletions();
+  const cancelled = loadCancelled();
   const today = dateStrOffset(0);
+  const span = Math.max(days, historyDays);
   return tasks.map(t => {
-    const cells = [];
+    const all = [];
     let scheduled = 0, done = 0;
-    for (let i = -(days - 1); i <= 0; i++) {
+    for (let i = -(span - 1); i <= 0; i++) {
       const date = dateStrOffset(i);
-      if (!taskAppliesOnDate(t, date) || !createdOnOrBefore(t, date)) { cells.push({ date, state: 'off' }); continue; }
+      if (!dueOn(t, date, cancelled)) { all.push({ date, state: 'off' }); continue; }
       const ok = isDoneOn(t, date, completions);
       // Today isn't missed until it's over.
       const state = ok ? 'done' : date === today ? 'pending' : 'missed';
-      if (state !== 'pending') { scheduled++; if (ok) done++; }
-      cells.push({ date, state });
+      if (i > -days && state !== 'pending') { scheduled++; if (ok) done++; }
+      all.push({ date, state });
     }
-    let run = 0;
-    for (let i = cells.length - 1; i >= 0; i--) {
-      const st = cells[i].state;
-      if (st === 'off' || st === 'pending') continue;
-      if (st === 'done') run++; else break;
+    let best = 0, cur = 0;
+    for (const c of all) {
+      if (c.state === 'done') { cur++; if (cur > best) best = cur; }
+      else if (c.state === 'missed') cur = 0;
     }
-    return { id: t.id, title: t.title, recurrence: t.recurrence, cells, rate: scheduled ? done / scheduled : null, streak: run };
-  }).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
+
+    const last = all[all.length - 1];
+    return {
+      id: t.id, title: t.title, recurrence: t.recurrence,
+      cells: all.slice(-days),
+      rate: scheduled ? done / scheduled : null,
+      streak: cur, best,
+      today: last.state === 'done' ? 'done' : last.state === 'pending' ? 'pending' : 'off',
+    };
+  }).sort((a, b) => (b.streak - a.streak) || ((b.rate ?? -1) - (a.rate ?? -1)));
 }
 
+export const STREAK_MILESTONES = [3, 7, 14, 21, 30, 50, 75, 100, 150, 200, 365];
+
 /**
- * Current and longest run of clean days — every scheduled task completed.
- * Days with nothing scheduled are skipped rather than breaking the run: a
- * weekends-only schedule should not lose its streak every Monday.
+ * Everything the streak UI needs, from one pass over the history.
+ *
+ * A clean day is one where every task due was done. Days with nothing due
+ * are skipped rather than breaking the run (a weekends-only schedule
+ * shouldn't lose its streak every Monday), and so are tasks cancelled for
+ * that day. Today never breaks the run while it's still in progress — it
+ * only adds to it once everything is done.
+ *
+ * @returns {{
+ *   current: number, longest: number, best: boolean,
+ *   today: { due: number, done: number, state: 'none'|'progress'|'clean' },
+ *   next: { at: number, from: number } | null,
+ *   days: { date: string, due: number, done: number, state: 'none'|'clean'|'partial'|'missed'|'today' }[],
+ * }}
  */
-export function getStreaks(days = 180) {
+export function getStreakDetails(days = 180, gridDays = 35) {
   const tasks = loadLocalTasks();
   const completions = loadCompletions();
+  const cancelled = loadCancelled();
 
   let longest = 0;
   let run = 0;
+  const cells = [];
+  let today = { due: 0, done: 0, state: 'none' };
 
   for (let i = -(days - 1); i <= 0; i++) {
     const date = dateStrOffset(i);
-    const due = tasks.filter(t => taskAppliesOnDate(t, date) && createdOnOrBefore(t, date));
-    if (due.length === 0) continue;
+    const due = tasks.filter(t => dueOn(t, date, cancelled));
+    const done = due.filter(t => isDoneOn(t, date, completions)).length;
+    const clean = due.length > 0 && done === due.length;
+    let state;
+    if (i === 0) {
+      today = { due: due.length, done, state: due.length === 0 ? 'none' : clean ? 'clean' : 'progress' };
+      state = due.length === 0 ? 'none' : clean ? 'clean' : 'today';
+    } else {
+      state = due.length === 0 ? 'none' : clean ? 'clean' : done > 0 ? 'partial' : 'missed';
+    }
 
-    if (due.every(t => isDoneOn(t, date, completions))) {
+    if (clean) {
       run++;
       if (run > longest) longest = run;
-    } else {
+    } else if (due.length > 0 && i !== 0) {
       run = 0;
     }
+    if (i > -gridDays) cells.push({ date, due: due.length, done, state });
   }
 
-  // The loop ends on today, so whatever run it finished with IS the current
-  // one. A day still in progress simply has not joined the run yet, rather
-  // than reading as a break.
-  return { current: run, longest };
+  const nextAt = STREAK_MILESTONES.find(m => m > run) ?? null;
+  const prevAt = [...STREAK_MILESTONES].reverse().find(m => m <= run) ?? 0;
+  return {
+    current: run,
+    longest,
+    best: run > 0 && run === longest,
+    today,
+    next: nextAt ? { at: nextAt, from: prevAt } : null,
+    days: cells,
+  };
+}
+
+/** Current and longest run of clean days (see getStreakDetails). */
+export function getStreaks(days = 180) {
+  const { current, longest } = getStreakDetails(days, 0);
+  return { current, longest };
 }
 
 /** Days since the earliest task was created — a simple "day N" counter. */

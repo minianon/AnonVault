@@ -289,6 +289,22 @@ CREATE TABLE IF NOT EXISTS public.income_ideas (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Meetings: one-off or repeating, shown on Calendar and Today
+CREATE TABLE IF NOT EXISTS public.meetings (
+    id UUID PRIMARY KEY,
+    title TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    start_time TEXT,
+    end_time TEXT,
+    recurrence TEXT NOT NULL DEFAULT 'none',
+    recurrence_days JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ends_on TEXT,
+    skipped JSONB NOT NULL DEFAULT '[]'::jsonb,
+    link TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- Settings that follow you across devices: idea pins / order / archive,
 -- cancelled-for-today tasks, Review targets, money budget + currency,
 -- hidden repeat payments, focus goal. One row per setting.
@@ -319,6 +335,7 @@ ALTER TABLE public.investments         DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.loans               DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.income_ideas        DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings        DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meetings            DISABLE ROW LEVEL SECURITY;
 
 -- Make sure the API roles can use the new tables (Supabase usually grants
 -- this automatically; harmless if it already did).
@@ -361,7 +378,7 @@ BEGIN
     'applications', 'ideas', 'tasks', 'task_completions', 'subtask_completions',
     'project_ideas', 'quotes', 'daily_notes', 'board_items', 'companies',
     'focus_sessions', 'transactions', 'income_sources', 'emis', 'investments',
-    'loans', 'income_ideas', 'app_settings'
+    'loans', 'income_ideas', 'app_settings', 'meetings'
   ] LOOP
     IF to_regclass('public.' || t) IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM pg_publication_tables

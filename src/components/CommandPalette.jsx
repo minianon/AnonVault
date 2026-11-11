@@ -101,7 +101,7 @@ export default function CommandPalette({
         { kind: 'money', id: 'hint-money', title: 'Log an expense…', hint: true, group: 'Quick actions', sub: 'Type an amount, e.g. 250 lunch' },
       ];
       if (running.length) out.push({ kind: 'stop', id: 'stop-all', title: `Stop ${running.length} running timer${running.length === 1 ? '' : 's'}`, group: 'Quick actions' });
-      NAV.forEach((s, i) => out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate', shortcut: String(i + 1) }));
+      NAV.forEach((s, i) => out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate', shortcut: i < 9 ? String(i + 1) : i === 9 ? '0' : null }));
       return out;
     }
 

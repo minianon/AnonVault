@@ -4,7 +4,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Menu, Lock, X, ChevronDown, Check } from 'lucide-react';
+import { Menu, Lock, X, ChevronDown, Check, Zap } from 'lucide-react';
 
 /* Themed replacement for <select>. The menu is portalled to <body> with
    fixed positioning so it is never clipped by a modal or a scrolling card,
@@ -465,5 +465,13 @@ export function Bars({ values, height = 72, highlightLast = true, format = v => 
       </div>
       <div className="absolute left-0 right-0 h-px bg-white/[0.08]" style={{ bottom: 18 + 6 }} />
     </div>
+  );
+}
+
+/** The streak mark: a bolt in the app's green, dim when there's no streak. */
+export function StreakIcon({ active = true, size = 14, className = '' }) {
+  return (
+    <Zap size={size} strokeWidth={2.2} className={`shrink-0 ${className}`}
+      style={{ color: active ? 'var(--ok)' : 'rgb(82 82 91)' }} fill={active ? 'currentColor' : 'none'} />
   );
 }

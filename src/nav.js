@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, CheckSquare, Timer, Wallet, KanbanSquare, Lightbulb, CalendarRange, BarChart3, Quote, CalendarDays,
+  LayoutDashboard, CheckSquare, Timer, Wallet, KanbanSquare, Lightbulb, CalendarRange, BarChart3, Quote, CalendarDays, Video,
 } from 'lucide-react';
 
 /* Primary sections, in sidebar order. Number keys 1–9 and 0 follow this order.
@@ -9,6 +9,7 @@ export const NAV = [
   { id: 'tasks',     label: 'Checklist',  icon: CheckSquare, countKey: 'pendingTasks', group: 'Plan' },
   { id: 'board',     label: 'Board',      icon: KanbanSquare, countKey: 'boardOpen', group: 'Plan' },
   { id: 'calendar',  label: 'Calendar',   icon: CalendarDays, group: 'Plan' },
+  { id: 'meetings',  label: 'Meetings',   icon: Video, countKey: 'meetingsToday', group: 'Plan' },
   { id: 'focus',     label: 'Focus',      icon: Timer, group: 'Track' },
   { id: 'money',     label: 'Money',      icon: Wallet, group: 'Track' },
   { id: 'ideas',     label: 'Ideas',      icon: Lightbulb, countKey: 'totalIdeas', group: 'Collect' },

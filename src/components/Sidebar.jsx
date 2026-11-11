@@ -148,7 +148,7 @@ export default function Sidebar({ activeTab, setActiveTab, stats, mobileOpen, se
                   )}
                   <button data-nav={id} onClick={() => go(id)}
                     className={`nav-item group relative !pl-[12px] !bg-transparent ${active ? 'active' : 'hover:!bg-white/[0.04]'}`}
-                    title={`${label} · press ${i === 9 ? 0 : i + 1}`}
+                    title={i < 10 ? `${label} · press ${i === 9 ? 0 : i + 1}` : label}
                     aria-current={active ? 'page' : undefined}>
                     <span className="relative shrink-0">
                       <Icon size={15} className="nav-icon" strokeWidth={active ? 2.1 : 1.8} />

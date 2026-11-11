@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Flame, CalendarDays, Trophy, AlertTriangle, CheckCircle2, Target, NotebookPen,
+  CalendarDays, Trophy, AlertTriangle, CheckCircle2, Target, NotebookPen,
   ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight, Timer, Wallet, KanbanSquare, Sparkles,
 } from 'lucide-react';
 import { getCompletionHistory, getTaskReliability, getStreaks, getDayCount } from '../services/tasks';
@@ -11,7 +11,7 @@ import { board, dueInfo } from '../services/board';
 import { companies as companyStore, companyById } from '../services/work';
 import { topParts } from '../utils/chart';
 import { usePref } from '../services/prefs';
-import { PageHeader, Card, CardHeader, Progress, Segmented, Bars } from './ui';
+import { PageHeader, Card, CardHeader, Progress, Segmented, Bars, StreakIcon } from './ui';
 
 /* Review is a report for one week or one month, read like a statement:
    what you did, where the time and money went, and what slipped. Every
@@ -460,7 +460,7 @@ export default function ReviewView({ applications, tasksVersion, onLock, onMenuT
               <div className="flex items-end gap-6">
                 <div>
                   <p className="text-[28px] leading-8 font-semibold tabular-nums text-slate-100 inline-flex items-center gap-1.5">
-                    {streaks.current}<Flame size={18} className={streaks.current ? 'text-amber-400' : 'text-slate-600'} />
+                    {streaks.current}<StreakIcon active={streaks.current > 0} size={17} />
                   </p>
                   <p className="text-[12px] text-slate-500">days in a row, every task done</p>
                 </div>
