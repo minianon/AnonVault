@@ -21,6 +21,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { createCollection } from './localStore';
+import { setPref, subscribePrefs } from './prefs';
 
 export const sessions = createCollection({
   storageKey: 'anonvault_focus_sessions',
@@ -63,7 +64,7 @@ export function logSession({ label, project = null, company_id = null, started_a
   });
 }
 
-/* Daily focus goal in minutes (per device). */
+/* Daily focus goal in minutes (synced across devices via prefs.js). */
 const GOAL_KEY = 'anonvault_focus_goal_min';
 const goalListeners = new Set();
 export function getFocusGoal() {
@@ -71,9 +72,10 @@ export function getFocusGoal() {
   return Number.isFinite(v) && v > 0 ? v : 240;
 }
 export function setFocusGoal(min) {
-  localStorage.setItem(GOAL_KEY, String(min));
+  setPref(GOAL_KEY, Number(min));
   goalListeners.forEach(f => f());
 }
+subscribePrefs(() => goalListeners.forEach(f => f()));
 export function useFocusGoal() {
   return useSyncExternalStore(cb => { goalListeners.add(cb); return () => goalListeners.delete(cb); }, getFocusGoal);
 }

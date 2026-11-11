@@ -15,6 +15,7 @@ import { PageHeader, Empty, Card, Modal, Select } from './ui';
 import { EditorLayout, PropRow, TitleInput, DescriptionInput, SectionTitle, LinksEditor } from './editor';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
+import { usePref } from '../services/prefs';
 
 /* ─── shared looks ─────────────────────────────────────── */
 const MAX_IMAGE_MB = 4;
@@ -51,15 +52,6 @@ function shortDate(value) {
   return d.toLocaleDateString(undefined, opts);
 }
 
-function readOrder() {
-  try {
-    const saved = localStorage.getItem('anonvault_ideas_order');
-    return saved ? JSON.parse(saved) : [];
-  } catch (e) {
-    console.error('Failed to parse ideas order:', e);
-    return [];
-  }
-}
 
 // Links go into the shared LinksEditor as [{ url, label }] — the same shape
 // ideas store — so only rows without a URL (never saved anyway) are dropped.
@@ -351,12 +343,9 @@ export default function IdeaVaultView({
   const [isFormOpen, setIsFormOpen]     = useState(false);
   const [editingIdea, setEditingIdea]   = useState(null);
 
-  const [pinnedIds, setPinnedIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem('anonvault_ideas_pinned');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  // Pins and the custom order are synced across devices (prefs.js).
+  const [pinnedPref, setPinnedIds] = usePref('anonvault_ideas_pinned', []);
+  const pinnedIds = useMemo(() => (Array.isArray(pinnedPref) ? pinnedPref : []), [pinnedPref]);
   const [formStarred, setFormStarred] = useState(false);
   const [formStatus, setFormStatus] = useState('new');
   const [stage, setStage] = useState(''); // '' = every stage
@@ -366,13 +355,13 @@ export default function IdeaVaultView({
       const updated = prev.includes(id)
         ? prev.filter(item => item !== id)
         : [...prev, id];
-      localStorage.setItem('anonvault_ideas_pinned', JSON.stringify(updated));
       return updated;
     });
   };
 
   /* sorting and drag state */
-  const [savedOrder, setSavedOrder]     = useState(readOrder);
+  const [orderPref, setSavedOrder]      = usePref('anonvault_ideas_order', []);
+  const savedOrder = useMemo(() => (Array.isArray(orderPref) ? orderPref : []), [orderPref]);
   const [sortBy, setSortBy]             = useState(() => localStorage.getItem('anonvault_ideas_sortby') || 'custom'); // 'custom', 'newest', 'oldest'
   const [draggedId, setDraggedId]       = useState(null);
   const [draggedOverId, setDraggedOverId] = useState(null);
@@ -588,7 +577,6 @@ export default function IdeaVaultView({
       newOrderedIdeas.splice(targetIndex, 0, removed);
 
       const newOrderIds = newOrderedIdeas.map(item => item.id);
-      localStorage.setItem('anonvault_ideas_order', JSON.stringify(newOrderIds));
       setSavedOrder(newOrderIds);
     }
     handleDragEnd();
@@ -627,11 +615,9 @@ export default function IdeaVaultView({
         const isCurrentlyPinned = prev.includes(editingIdea.id);
         if (formStarred && !isCurrentlyPinned) {
           const updated = [...prev, editingIdea.id];
-          localStorage.setItem('anonvault_ideas_pinned', JSON.stringify(updated));
           return updated;
         } else if (!formStarred && isCurrentlyPinned) {
           const updated = prev.filter(id => id !== editingIdea.id);
-          localStorage.setItem('anonvault_ideas_pinned', JSON.stringify(updated));
           return updated;
         }
         return prev;
@@ -642,7 +628,6 @@ export default function IdeaVaultView({
     if (added && added.id && formStarred) {
       setPinnedIds(prev => {
         const updated = [...prev, added.id];
-        localStorage.setItem('anonvault_ideas_pinned', JSON.stringify(updated));
         return updated;
       });
     }

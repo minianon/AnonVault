@@ -14,6 +14,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { getSupabaseClient } from './supabase';
+import { reportSyncIssue, missingColumnIn } from './syncStatus';
 
 export function newId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -90,16 +91,20 @@ export function createCollection({ storageKey, table, sort }) {
       try {
         const { error } = await client.from(table).upsert(rows.map(strip));
         if (!error) return true;
-        const m = /Could not find the '([^']+)' column/i.exec(error.message || '');
-        if (m && !missingCols.has(m[1])) {
-          missingCols.add(m[1]);
-          console.warn(`[${table}] column "${m[1]}" is missing in Supabase — run supabase/setup_full.sql. Keeping it locally.`);
+        const col = missingColumnIn(error);
+        if (col && !missingCols.has(col)) {
+          missingCols.add(col);
+          // Without this column the value never leaves this device, which
+          // looks exactly like "my other device doesn't show it".
+          reportSyncIssue(`${table}-col-${col}`,
+            `Supabase table "${table}" has no "${col}" column, so that field only saves on this device. Run supabase/setup_full.sql.`,
+            error.message);
           continue;
         }
-        console.warn(`[${table}] Supabase save failed, will retry:`, error.message || error);
+        reportSyncIssue(`${table}-save`, `Saved on this device, but "${table}" didn't reach Supabase. It will retry.`, error.message || error);
         return false;
       } catch (err) {
-        console.warn(`[${table}] Supabase save failed, will retry:`, err?.message || err);
+        reportSyncIssue(`${table}-save`, `Saved on this device, but "${table}" didn't reach Supabase. It will retry.`, err?.message || err);
         return false;
       }
     }
@@ -111,8 +116,12 @@ export function createCollection({ storageKey, table, sort }) {
     if (!client || !table) return true;
     try {
       const { error } = await client.from(table).delete().eq('id', id);
-      return !error;
-    } catch { return false; }
+      if (error) throw error;
+      return true;
+    } catch (err) {
+      reportSyncIssue(`${table}-save`, `A deletion in "${table}" didn't reach Supabase. It will retry.`, err?.message || err);
+      return false;
+    }
   }
 
   function pushRow(row) {
@@ -177,6 +186,7 @@ export function createCollection({ storageKey, table, sort }) {
       const client = getSupabaseClient();
       if (!client || !table) return;
       try {
+        const syncedBefore = loadSynced();
         const { data, error } = await client.from(table).select('*');
         if (error) throw error;
         const pending = loadPending();
@@ -200,15 +210,20 @@ export function createCollection({ storageKey, table, sort }) {
         const nowSynced = new Set([...remote.keys()].filter(id => pending[id] !== 'delete'));
         const toPush = [...localOnly, ...items.filter(i => remote.has(i.id) && pending[i.id] === 'upsert')];
         if (toPush.length) {
-          const ok = await upsertRemote(toPush);
-          toPush.forEach(r => { setPending(r.id, ok ? null : 'upsert'); if (ok) nowSynced.add(r.id); });
+          // One batch first; if anything in it is rejected, go row by row so a
+          // single bad row can't keep every other change from uploading.
+          const markPushed = (rows, ok) => rows.forEach(r => { setPending(r.id, ok ? null : 'upsert'); if (ok) nowSynced.add(r.id); });
+          if (await upsertRemote(toPush)) markPushed(toPush, true);
+          else for (const r of toPush) markPushed([r], await upsertRemote([r]));
         }
         for (const [id, op] of Object.entries(pending)) {
           if (op === 'delete' && await deleteRemote(id)) setPending(id, null);
         }
+        // Keep rows that were saved by pushRow() while this sync was running.
+        for (const id of loadSynced()) if (!syncedBefore.has(id)) nowSynced.add(id);
         saveSynced(nowSynced);
       } catch (err) {
-        console.warn(`[${table}] not available, staying local:`, err?.message || err);
+        reportSyncIssue(`${table}-load`, `Couldn't load "${table}" from Supabase — showing what this device has. Run supabase/setup_full.sql if the table is missing.`, err?.message || err);
       }
     },
   };

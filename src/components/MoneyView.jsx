@@ -12,22 +12,22 @@ import { IncomeSourcesTab, InvestmentsTab, LendingTab, EmiTab } from './MoneyExt
 import { PageHeader, Card, CardHeader, Stat, Empty, Bars, Segmented, Progress, Modal, Field, Select, inputCls, Donut } from './ui';
 import { topParts } from '../utils/chart';
 import { DateInput } from './DatePicker';
+import { usePref } from '../services/prefs';
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY'];
 
 /* Things you pay for again and again, found from your own expenses — so a
    forgotten subscription shows up as "₹649 every month" instead of hiding
-   in the list. Dismissed ones stay hidden on this device. */
+   in the list. Dismissed ones stay hidden on every device (prefs.js). */
 const HIDDEN_KEY = 'anonvault_money_repeat_hidden';
 function RepeatPayments({ all, fmt }) {
-  const [hidden, setHidden] = useState(() => { try { return JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'); } catch { return []; } });
+  const [hiddenPref, setHidden] = usePref(HIDDEN_KEY, []);
+  const hidden = Array.isArray(hiddenPref) ? hiddenPref : [];
   const found = useMemo(() => detectRepeats(all), [all]);
   const list = found.filter(r => !hidden.includes(r.key));
   if (!list.length) return null;
   const hide = key => {
-    const next = [...hidden, key];
-    setHidden(next);
-    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* fine */ }
+    setHidden([...hidden, key]);
   };
   const perMonth = list.reduce((t, r) => t + r.perMonth, 0);
   const everyLabel = e => (e === 'month' ? 'every month' : e === 'week' ? 'every week' : `every ${e} days`);

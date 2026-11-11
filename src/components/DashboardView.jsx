@@ -171,7 +171,7 @@ export default function DashboardView({
     const next = !task.completed;
     setTasks(prev => prev.map(t => t.id === task.id
       ? { ...t, completed: next, subtasks: (t.subtasks || []).map(st => ({ ...st, completed: next })) } : t));
-    try { await toggleTaskCompletion(task, todayStr); onTasksChange?.(); }
+    try { await toggleTaskCompletion(task, todayStr, next); onTasksChange?.(); }
     catch { await loadTodayTasks(); }
   };
 
@@ -182,7 +182,7 @@ export default function DashboardView({
       const subs = (t.subtasks || []).map(st => st.id === sub.id ? { ...st, completed: next } : st);
       return { ...t, subtasks: subs, completed: subs.length > 0 && subs.every(s => s.completed) };
     }));
-    try { await toggleSubtaskCompletion(task, sub.id, todayStr); onTasksChange?.(); }
+    try { await toggleSubtaskCompletion(task, sub.id, todayStr, next); onTasksChange?.(); }
     catch { await loadTodayTasks(); }
   };
 

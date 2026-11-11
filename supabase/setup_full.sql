@@ -289,6 +289,15 @@ CREATE TABLE IF NOT EXISTS public.income_ideas (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- Settings that follow you across devices: idea pins / order / archive,
+-- cancelled-for-today tasks, Review targets, money budget + currency,
+-- hidden repeat payments, focus goal. One row per setting.
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- ════════════════════════════════════════════════════════════════════
 -- 3. ACCESS (single-user vault: RLS off, like the original schema)
 -- ════════════════════════════════════════════════════════════════════
@@ -309,6 +318,7 @@ ALTER TABLE public.emis                DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.investments         DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.loans               DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.income_ideas        DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings        DISABLE ROW LEVEL SECURITY;
 
 -- Make sure the API roles can use the new tables (Supabase usually grants
 -- this automatically; harmless if it already did).

@@ -16,6 +16,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { createCollection } from './localStore';
+import { setPref, subscribePrefs } from './prefs';
 
 export const transactions = createCollection({
   storageKey: 'anonvault_transactions',
@@ -73,9 +74,16 @@ function readSettings() {
 export function getMoneySettings() { return settings; }
 export function setMoneySettings(patch) {
   settings = { ...settings, ...patch };
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
+  setPref(SETTINGS_KEY, settings); // saved locally + synced to other devices
   settingsListeners.forEach(fn => fn());
 }
+// Budget / currency changed on another device (or tab).
+subscribePrefs(() => {
+  const next = readSettings();
+  if (JSON.stringify(next) === JSON.stringify(settings)) return;
+  settings = next;
+  settingsListeners.forEach(fn => fn());
+});
 export function useMoneySettings() {
   return useSyncExternalStore(
     fn => { settingsListeners.add(fn); return () => settingsListeners.delete(fn); },

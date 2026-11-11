@@ -14,6 +14,7 @@ import { sessions as focusSessions, startSession, stopSession, durationMs, forma
 import { getHabitGrid } from '../services/tasks';
 import { Flame as FlameIcon, Grid3x3 } from 'lucide-react';
 import { getNote, setNote } from '../services/journal';
+import { usePref, getPref } from '../services/prefs';
 import { PageHeader, Card, CardHeader, Empty, Progress, Select, Modal } from './ui';
 import { EditorLayout, PropRow, TitleInput, SectionTitle, DueField, ComposerShell } from './editor';
 import { parseCapture, parseRepeat, formatWhen } from '../services/nlp';
@@ -447,7 +448,7 @@ function TaskFormModal({ isOpen, onClose, onSave, onDelete, editingTask, default
       setPriority(editingTask.priority || 'medium');
       setIsRecurring(editingTask.is_recurring);
       setRecurrence(editingTask.recurrence || 'daily');
-      setRecurrenceDays(editingTask.recurrence_days || []);
+      setRecurrenceDays((editingTask.recurrence_days || []).map(Number));
       setTaskDate(editingTask.date || defaultDate || todayStr());
       setSubtasks(editingTask.subtasks?.map(s => ({ id: s.id, title: s.title })) || []);
       setHackathonId(editingTask.hackathon_id || '');
@@ -603,35 +604,30 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   const [busy,         setBusy]         = useState(false);
   const [markingAll,   setMarkingAll]   = useState(false);
 
-  const [cancelledMap, setCancelledMap] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('anonvault_task_cancelled') || localStorage.getItem('anonvault_task_ignored') || '{}');
-    } catch {
-      return {};
-    }
-  });
+  // Synced across devices (prefs.js). Falls back to the pre-rename key.
+  const [cancelledMap, setCancelledMap] = usePref('anonvault_task_cancelled', getPref('anonvault_task_ignored', {}));
 
   const handleCancel = useCallback(async task => {
-    const updated = { ...cancelledMap };
-    if (!updated[task.id]) updated[task.id] = {};
-    updated[task.id][selectedDate] = true;
-    setCancelledMap(updated);
-    localStorage.setItem('anonvault_task_cancelled', JSON.stringify(updated));
+    setCancelledMap(prev => ({
+      ...prev,
+      [task.id]: { ...(prev?.[task.id] || {}), [selectedDate]: true },
+    }));
     showToast?.('warning', 'Task Cancelled', `"${task.title}" cancelled for today.`);
-  }, [cancelledMap, selectedDate, showToast]);
+  }, [selectedDate, showToast, setCancelledMap]);
 
   const handleUncancel = useCallback(async taskId => {
-    const updated = { ...cancelledMap };
-    if (updated[taskId]) {
-      delete updated[taskId][selectedDate];
-      if (Object.keys(updated[taskId]).length === 0) {
-        delete updated[taskId];
+    setCancelledMap(prev => {
+      const updated = { ...(prev || {}) };
+      if (updated[taskId]) {
+        const days = { ...updated[taskId] };
+        delete days[selectedDate];
+        if (Object.keys(days).length === 0) delete updated[taskId];
+        else updated[taskId] = days;
       }
-    }
-    setCancelledMap(updated);
-    localStorage.setItem('anonvault_task_cancelled', JSON.stringify(updated));
+      return updated;
+    });
     showToast?.('success', 'Task Restored', 'Task is visible again.');
-  }, [cancelledMap, selectedDate, showToast]);
+  }, [selectedDate, showToast, setCancelledMap]);
 
   // fetch only — used for external refreshes so we never notify back and loop
   const reload = useCallback(async () => {
@@ -690,7 +686,7 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
     }));
 
     try {
-      await toggleTaskCompletion(task, selectedDate);
+      await toggleTaskCompletion(task, selectedDate, isCompleted);
       await refresh();
     } catch (err) {
       console.error('Failed to toggle task:', err);
@@ -715,7 +711,7 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
 
     try {
       for (const task of pending) {
-        await toggleTaskCompletion(task, selectedDate);
+        await toggleTaskCompletion(task, selectedDate, true);
       }
       showToast?.('success', 'All Done',
         `${pending.length} task${pending.length > 1 ? 's' : ''} marked as completed.`);
@@ -728,12 +724,13 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
   }, [tasks, cancelledMap, selectedDate, refresh, showToast]);
 
   const handleToggleSub = useCallback(async (task, sid) => {
+    const desired = !(task.subtasks || []).find(st => st.id === sid)?.completed;
     // Optimistic Update
     setTasks(prev => prev.map(t => {
       if (t.id === task.id) {
         const updatedSubs = (t.subtasks || []).map(st => {
           if (st.id === sid) {
-            return { ...st, completed: !st.completed };
+            return { ...st, completed: desired };
           }
           return st;
         });
@@ -748,7 +745,7 @@ export default function TasksView({ showToast, onTasksChange, tasksVersion, onLo
     }));
 
     try {
-      await toggleSubtaskCompletion(task, sid, selectedDate);
+      await toggleSubtaskCompletion(task, sid, selectedDate, desired);
       await refresh();
     } catch (err) {
       console.error('Failed to toggle subtask:', err);

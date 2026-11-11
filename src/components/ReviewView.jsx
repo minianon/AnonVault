@@ -10,6 +10,7 @@ import { transactions, categoryMeta, formatMoney, useMoneySettings, emis, emiSta
 import { board, dueInfo } from '../services/board';
 import { companies as companyStore, companyById } from '../services/work';
 import { topParts } from '../utils/chart';
+import { usePref } from '../services/prefs';
 import { PageHeader, Card, CardHeader, Progress, Segmented, Bars } from './ui';
 
 /* Review is a report for one week or one month, read like a statement:
@@ -19,10 +20,6 @@ import { PageHeader, Card, CardHeader, Progress, Segmented, Bars } from './ui';
 
 const TARGETS_KEY = 'anonvault_targets';
 const DEFAULT_TARGETS = { completion: 80 };
-function loadTargets() {
-  try { return { ...DEFAULT_TARGETS, ...JSON.parse(localStorage.getItem(TARGETS_KEY) || '{}') }; }
-  catch { return DEFAULT_TARGETS; }
-}
 
 const DAY = 86400000;
 const pad = n => String(n).padStart(2, '0');
@@ -163,7 +160,9 @@ export default function ReviewView({ applications, tasksVersion, onLock, onMenuT
   const [kind, setKind] = useState('week');
   const [offset, setOffset] = useState(0);
   const [split, setSplit] = useState('source');
-  const [targets, setTargets] = useState(loadTargets);
+  // Synced across devices (prefs.js).
+  const [storedTargets, setTargets] = usePref(TARGETS_KEY, {});
+  const targets = useMemo(() => ({ ...DEFAULT_TARGETS, ...(storedTargets || {}) }), [storedTargets]);
   const [editingTargets, setEditingTargets] = useState(false);
 
   const focusList = sessions.useAll();
@@ -181,7 +180,6 @@ export default function ReviewView({ applications, tasksVersion, onLock, onMenuT
 
   const saveTargets = next => {
     setTargets(next);
-    try { localStorage.setItem(TARGETS_KEY, JSON.stringify(next)); } catch { /* not critical */ }
   };
   const changeKind = k => { setKind(k); setOffset(0); };
   useEffect(() => {

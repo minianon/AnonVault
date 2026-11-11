@@ -1,34 +1,24 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
+import { usePref } from '../services/prefs';
 
 /**
  * Archiving for the two capture sections, which otherwise grow forever.
  *
- * Stored locally, matching how pinning already works in these views
- * (anonvault_ideas_pinned). It is a view-level preference, not content, so
- * it deliberately does not go through Supabase or need a migration.
+ * A list of ids kept in prefs.js: saved locally and synced to your other
+ * devices through the app_settings table.
  */
 export function useArchive(storageKey) {
-  const [archivedIds, setArchivedIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  const [stored, setArchivedIds] = usePref(storageKey, []);
+  const archivedIds = useMemo(() => (Array.isArray(stored) ? stored : []), [stored]);
 
-  const persist = next => {
-    setArchivedIds(next);
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); }
-    catch { /* not critical */ }
-  };
+  const persist = next => setArchivedIds(next);
 
   const toggleArchived = useCallback(id => {
     setArchivedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); }
-      catch { /* not critical */ }
-      return next;
+      const list = Array.isArray(prev) ? prev : [];
+      return list.includes(id) ? list.filter(x => x !== id) : [...list, id];
     });
-  }, [storageKey]);
+  }, [setArchivedIds]);
 
   const isArchived = useCallback(id => archivedIds.includes(id), [archivedIds]);
 

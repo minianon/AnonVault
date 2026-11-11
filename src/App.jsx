@@ -30,6 +30,32 @@ import { board, addItem as addBoardItem } from './services/board';
 import { ideas as ideaStore, stepsIn } from './services/ideas';
 import { quotes as quoteStore } from './services/quotes';
 import { sessions as focusStore } from './services/focus';
+import { syncPrefs } from './services/prefs';
+import { onSyncIssue } from './services/syncStatus';
+
+/**
+ * Pull every other-device change into the local caches and push anything
+ * that is still waiting. Each part is local-first and never rejects, so one
+ * missing table can't stop the rest from syncing.
+ */
+function syncLocalFirstStores() {
+  return Promise.all([
+    ideaStore.sync(),
+    loadAllTasks().catch(err => console.warn('Could not sync tasks:', err)),
+    syncNotes(),
+    syncPrefs(),
+    moneyStore.sync(),
+    focusStore.sync(),
+    incomeSources.sync(),
+    investments.sync(),
+    loans.sync(),
+    emis.sync(),
+    incomeIdeas.sync(),
+    companies.sync(),
+    board.sync(),
+    quoteStore.sync(),
+  ]);
+}
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -512,27 +538,9 @@ function AppInner() {
           console.error('Error fetching applications:', err);
           return [];
         }),
-        // Ideas are local-first now; this pulls the Supabase copy (and any
-        // ideas saved there before the switch).
-        ideaStore.sync(),
-        // Eagerly populate the tasks cache so the sidebar count is correct immediately
-        loadAllTasks().catch(err => {
-          console.warn('Could not pre-fetch tasks for sidebar count:', err);
-        }),
-        // Daily notes are local-first; this just refreshes the local cache
-        // from any other device. Never rejects.
-        syncNotes(),
-        // Money and Focus are local-first; this pulls other devices' rows.
-        moneyStore.sync(),
-        focusStore.sync(),
-        incomeSources.sync(),
-        investments.sync(),
-        loans.sync(),
-        emis.sync(),
-        incomeIdeas.sync(),
-        companies.sync(),
-        board.sync(),
-        quoteStore.sync(),
+        // Ideas, tasks, notes, settings, Money, Focus, Board, Quotes: pull
+        // other devices' changes and push anything waiting from this one.
+        syncLocalFirstStores(),
       ]);
 
       setApplications(appsData);
@@ -571,6 +579,8 @@ function AppInner() {
 
       // Refresh pending task count now that the cache is warm
       setTaskStats(computeTaskStats());
+      // Views that rendered before the sync finished re-read the fresh cache.
+      setTasksVersion(v => v + 1);
       
       if (!didSyncRef.current) {
         didSyncRef.current = true;
@@ -717,6 +727,50 @@ function AppInner() {
     setTaskStats(computeTaskStats());
     setTasksVersion(v => v + 1);
   }, []);
+
+  // Sync used to happen only at unlock, so a device left open never saw
+  // changes made elsewhere. Re-sync when the window comes back into focus
+  // (at most every 30s) and every 5 minutes while it's open.
+  useEffect(() => {
+    if (!isAuthorized) return;
+    let last = Date.now();
+    let running = false;
+    const run = async () => {
+      if (running || Date.now() - last < 30000) return;
+      running = true;
+      last = Date.now();
+      try {
+        const [apps] = await Promise.all([
+          fetchApplications().catch(() => null),
+          syncLocalFirstStores(),
+        ]);
+        if (apps) setApplications(apps);
+        refreshPendingTasks();
+      } finally {
+        running = false;
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') run(); };
+    window.addEventListener('focus', run);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = setInterval(run, 5 * 60 * 1000);
+    return () => {
+      window.removeEventListener('focus', run);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(timer);
+    };
+  }, [isAuthorized, refreshPendingTasks]);
+
+  // A save that didn't reach Supabase is kept locally and retried; say so
+  // once per distinct problem instead of failing silently.
+  useEffect(() => {
+    const seen = new Set();
+    return onSyncIssue(({ key, message }) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      showToast('warning', 'Not synced yet', message, 9000);
+    });
+  }, [showToast]);
 
   // Panel reveals are owned entirely by [data-tabreveal]. Gating on this
   // rather than on activeTab alone matters twice over: while the lock screen
