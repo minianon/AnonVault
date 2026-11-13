@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import {
   Plus, Pencil, Trash2, ChevronRight, TrendingUp, CircleDollarSign, CalendarClock, LineChart, HandCoins, Check,
 } from 'lucide-react';
-import { Card, CardHeader, LinkButton, Empty, Bars, Modal, Segmented, inputCls } from './ui';
+import { Card, CardHeader, LinkButton, Empty, Modal, Segmented, inputCls } from './ui';
+import IncomeChart from './IncomeChart';
 import { DateInput } from './DatePicker';
 import {
   transactions, incomeSources, emis, investments, loans,
@@ -120,44 +121,52 @@ export default function MoneyOverview({ month, fmt, showToast, switchTab, amount
     try { const v = localStorage.getItem('anonvault_extra_chart'); return ['day', 'month', 'year'].includes(v) ? v : 'month'; } catch { return 'month'; }
   });
   const changeSpan = v => { setSpan(v); try { localStorage.setItem('anonvault_extra_chart', v); } catch { /* fine */ } };
-  const sumWhere = prefix => extraAll.filter(t => (t.date || '').startsWith(prefix)).reduce((s, t) => s + num(t.amount), 0);
   const todayKey = ymd();
   const chart = useMemo(() => {
+    // One bucket per day / month / year, split by kind for the stacked bars.
+    const bucket = (key, prefix, label, tip, extra = {}) => {
+      const parts = {};
+      let total = 0;
+      for (const t of extraAll) {
+        if (!(t.date || '').startsWith(prefix)) continue;
+        const kind = EXTRA_IDS.has(t.category) ? t.category : 'other-in';
+        parts[kind] = (parts[kind] || 0) + num(t.amount);
+        total += num(t.amount);
+      }
+      return { key, label, tip, parts, total, ...extra };
+    };
     if (span === 'day') {
       const [y, m] = month.split('-').map(Number);
       const days = new Date(y, m, 0).getDate();
       const isNow = month === todayKey.slice(0, 7);
       const todayDay = isNow ? Number(todayKey.slice(8, 10)) : null;
-      const bars = Array.from({ length: days }, (_, i) => {
+      const buckets = Array.from({ length: days }, (_, i) => {
         const key = `${month}-${String(i + 1).padStart(2, '0')}`;
-        const value = sumWhere(key);
-        return {
-          label: i === 0 || (i + 1) % 5 === 0 || i + 1 === todayDay ? String(i + 1) : '',
-          value, highlight: i + 1 === todayDay, muted: todayDay != null && i + 1 > todayDay,
-          tip: new Date(y, m - 1, i + 1).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) + (value ? '' : ' · nothing'),
-        };
+        const date = new Date(y, m - 1, i + 1);
+        return bucket(key, key, String(i + 1),
+          date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
+          { current: i + 1 === todayDay, future: todayDay != null && i + 1 > todayDay, sub: date.toLocaleDateString(undefined, { weekday: 'narrow' }) });
       });
-      const counted = todayDay ?? days;
-      return { bars, title: monthLabel(month, { month: 'long', year: 'numeric' }), unit: 'day', periods: counted };
+      return { buckets, title: monthLabel(month, { month: 'long', year: 'numeric' }), unit: 'day', periods: todayDay ?? days, best: 'Best day' };
     }
     if (span === 'year') {
       const thisYear = Number(todayKey.slice(0, 4));
       const firstYear = Math.min(thisYear - 2, ...extraAll.map(t => Number((t.date || '').slice(0, 4))).filter(Boolean));
-      const bars = Array.from({ length: thisYear - firstYear + 1 }, (_, i) => {
+      const buckets = Array.from({ length: thisYear - firstYear + 1 }, (_, i) => {
         const yr = String(firstYear + i);
-        return { label: yr, value: sumWhere(yr), highlight: Number(yr) === thisYear, tip: yr };
+        return bucket(yr, yr, yr, yr, { current: Number(yr) === thisYear });
       });
-      return { bars, title: `${firstYear}–${thisYear}`, unit: 'year', periods: bars.length };
+      return { buckets, title: `${firstYear}–${thisYear}`, unit: 'year', periods: buckets.length, best: 'Best year' };
     }
-    const bars = Array.from({ length: 12 }, (_, i) => shiftMonth(month, i - 11)).map(m => ({
-      label: monthLabel(m, { month: 'short' }), value: sumWhere(m), highlight: m === month, tip: monthLabel(m),
-    }));
-    return { bars, title: 'Last 12 months', unit: 'month', periods: 12 };
-    // sumWhere reads extraAll, which is in the deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const nowMonth = todayKey.slice(0, 7);
+    const buckets = Array.from({ length: 12 }, (_, i) => shiftMonth(month, i - 11)).map(m =>
+      bucket(m, m, monthLabel(m, { month: 'short' }), monthLabel(m), { current: m === month, future: m > nowMonth }));
+    return { buckets, title: 'Last 12 months', unit: 'month', periods: 12, best: 'Best month' };
   }, [span, month, extraAll, todayKey]);
-  const chartTotal = chart.bars.reduce((s, b) => s + b.value, 0);
+  const chartTotal = chart.buckets.reduce((s, b) => s + b.total, 0);
   const chartAvg = chart.periods ? chartTotal / chart.periods : 0;
+  const chartBest = chart.buckets.reduce((b, x) => (x.total > (b?.total || 0) ? x : b), null);
+  const kindsInChart = EXTRA_INCOME_CATEGORIES.filter(k => chart.buckets.some(b => b.parts[k.id]));
 
   /* income sources */
   const activeSources = sources.filter(s => s.active !== false && s.frequency !== 'one-time');
@@ -237,25 +246,42 @@ export default function MoneyOverview({ month, fmt, showToast, switchTab, amount
             </div>
 
             {/* by day / month / year */}
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] px-3.5 pt-3 pb-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] px-3.5 pt-3 pb-3">
+              <div className="flex flex-wrap items-start gap-x-6 gap-y-2 mb-2">
                 <div className="min-w-0">
                   <p className="text-[12px] text-slate-400">{chart.title}</p>
-                  <p className="text-[15px] font-semibold tabular-nums text-slate-100">
-                    {fmt(chartTotal)}
-                    {chartTotal > 0 && <span className="ml-2 text-[11.5px] font-normal text-slate-500">avg {fmt(chartAvg)}/{chart.unit}</span>}
-                  </p>
+                  <p className="text-[20px] leading-7 font-semibold tracking-[-0.02em] tabular-nums text-slate-50">{fmt(chartTotal)}</p>
                 </div>
+                {chartTotal > 0 && (
+                  <>
+                    <div className="min-w-0">
+                      <p className="text-[12px] text-slate-500">Average</p>
+                      <p className="text-[13.5px] leading-7 tabular-nums text-slate-200">{fmt(chartAvg)}<span className="text-slate-500">/{chart.unit}</span></p>
+                    </div>
+                    {chartBest && (
+                      <div className="min-w-0">
+                        <p className="text-[12px] text-slate-500">{chart.best}</p>
+                        <p className="text-[13.5px] leading-7 tabular-nums text-slate-200">{fmt(chartBest.total)} <span className="text-slate-500">· {chartBest.tip}</span></p>
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="ml-auto">
                   <Segmented size="sm" value={span} onChange={changeSpan}
                     options={[{ value: 'day', label: 'Day' }, { value: 'month', label: 'Month' }, { value: 'year', label: 'Year' }]} />
                 </div>
               </div>
-              {chartTotal > 0 ? (
-                <Bars key={span} height={96} color="var(--ok)" highlightLast={false} format={v => fmt(v)}
-                  average={chart.bars.length > 2 ? chartAvg : undefined} values={chart.bars} />
-              ) : (
-                <p className="text-[12.5px] text-slate-500 py-8 text-center">No extra income in {span === 'day' ? monthLabel(month, { month: 'long' }) : span === 'month' ? 'the last 12 months' : 'these years'}.</p>
+              <IncomeChart key={span + (chart.buckets[0]?.key || '')} buckets={chart.buckets} kinds={EXTRA_INCOME_CATEGORIES} fmt={v => fmt(v)}
+                fmtShort={v => fmt(v, { compact: true }).replace(/\.0(?=[^\d]*$)/, '')}
+                average={chart.buckets.length > 2 ? chartAvg : 0} unit={chart.unit}
+                emptyText={`No extra income in ${span === 'day' ? monthLabel(month, { month: 'long' }) : span === 'month' ? 'the last 12 months' : 'these years'}.`} />
+              {kindsInChart.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[11.5px] text-slate-400">
+                  {kindsInChart.map(k => (
+                    <span key={k.id} className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: k.color }} />{k.label}</span>
+                  ))}
+                  <span className="ml-auto text-slate-600 hidden sm:inline">Hover a bar for the breakdown</span>
+                </div>
               )}
             </div>
 

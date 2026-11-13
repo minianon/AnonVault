@@ -149,7 +149,7 @@ const APPS_CACHE_KEY = 'anonvault_applications_cache';
 const CONCEPTS_CACHE_KEY = 'anonvault_concepts_cache';
 
 function computeBriefing() {
-  const out = { tasksLeft: 0, doneToday: 0, totalToday: 0, dueThisWeek: 0, spentMonth: 0 };
+  const out = { tasksLeft: 0, doneToday: 0, totalToday: 0, dueThisWeek: 0, earnedMonth: 0 };
 
   try {
     const stats = computeTaskStats();
@@ -171,7 +171,8 @@ function computeBriefing() {
   } catch { /* leave at 0 */ }
 
   try {
-    out.spentMonth = summarizeMonth(moneyStore.getAll(), monthKey()).expense;
+    // Everything that came in this month: income sources + extra income.
+    out.earnedMonth = summarizeMonth(moneyStore.getAll(), monthKey()).income;
   } catch { /* leave at 0 */ }
 
   return out;
@@ -271,7 +272,7 @@ function AccessGranted({ onComplete }) {
         <div className="panel mt-7 p-1 flex divide-x divide-white/[0.06]">
           <BriefingTile value={brief.tasksLeft} label="Tasks left" delay={140} onJump={() => finish('tasks')} />
           <BriefingTile value={brief.dueThisWeek} label="Deadlines · 7d" delay={190} onJump={() => finish('timeline')} />
-          <BriefingTile value={brief.spentMonth} format={money} label="Spent this month" delay={240} onJump={() => finish('money')} />
+          <BriefingTile value={brief.earnedMonth} format={money} label="Earned this month" delay={240} onJump={() => finish('money')} />
         </div>
 
         <div className="mt-6 h-px bg-white/[0.06] overflow-hidden rounded-full">
