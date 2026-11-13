@@ -140,7 +140,9 @@ export default function MoneyOverview({ month, fmt, showToast, switchTab, amount
       const days = new Date(y, m, 0).getDate();
       const isNow = month === todayKey.slice(0, 7);
       const todayDay = isNow ? Number(todayKey.slice(8, 10)) : null;
-      const buckets = Array.from({ length: days }, (_, i) => {
+      // This month stops at today (showing at least a week); past months show every day.
+      const shownDays = todayDay ? Math.min(days, Math.max(todayDay, 7)) : days;
+      const buckets = Array.from({ length: shownDays }, (_, i) => {
         const key = `${month}-${String(i + 1).padStart(2, '0')}`;
         const date = new Date(y, m - 1, i + 1);
         return bucket(key, key, String(i + 1),

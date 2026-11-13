@@ -49,7 +49,9 @@ export default function IncomeChart({ buckets, kinds, fmt, fmtShort, average, un
 
   const twoLine = buckets.some(b => b.sub);
   const bottom = PAD.bottom + (twoLine ? 14 : 0);
-  const plotW = Math.max(0, width - PAD.left - PAD.right);
+  // Room on the right for the average tag, so it never sits on a bar.
+  const padR = average > 0 ? 62 : PAD.right;
+  const plotW = Math.max(0, width - PAD.left - padR);
   const plotH = H - PAD.top - bottom;
   const n = buckets.length || 1;
   const slot = plotW / n;
@@ -91,7 +93,7 @@ export default function IncomeChart({ buckets, kinds, fmt, fmtShort, average, un
           {/* scale + gridlines */}
           {ticks.map(t => (
             <g key={t}>
-              <line x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)}
+              <line x1={PAD.left} x2={width - padR} y1={y(t)} y2={y(t)}
                 stroke="rgba(255,255,255,0.06)" strokeDasharray={t === 0 ? undefined : '3 4'} />
               <text x={PAD.left - 8} y={y(t)} dy="0.32em" textAnchor="end" fontSize="10.5" fill="rgb(113,113,122)" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {t === 0 ? '0' : fmtShort(t)}
@@ -128,17 +130,18 @@ export default function IncomeChart({ buckets, kinds, fmt, fmtShort, average, un
             );
           })}
 
-          {/* average: a clear line with a labelled pill on the left */}
+          {/* average: a clear line, with its value tagged in the right margin */}
           {average > 0 && (() => {
             const ay = y(average);
-            const label = `Avg ${fmt(average)}${unit ? `/${unit}` : ''}`;
-            const w = label.length * 6.1 + 14;
+            const tx = width - padR + 6;
+            const tw = padR - 8;
             return (
               <g style={{ pointerEvents: 'none' }}>
-                <line x1={PAD.left} x2={width - PAD.right} y1={ay} y2={ay} stroke={AVG} strokeOpacity="0.85" strokeWidth="1.5" strokeDasharray="6 4" />
-                <rect x={PAD.left + 4} y={ay - 21} width={w} height={17} rx={8.5} fill="#1f1a10" stroke={AVG} strokeOpacity="0.55" />
-                <text x={PAD.left + 4 + w / 2} y={ay - 12.5} dy="0.32em" textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#f7cf7b"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}>{label}</text>
+                <line x1={PAD.left} x2={width - padR + 2} y1={ay} y2={ay} stroke={AVG} strokeOpacity="0.9" strokeWidth="1.5" strokeDasharray="6 4" />
+                <rect x={tx} y={ay - 15} width={tw} height={30} rx={7} fill="#1f1a10" stroke={AVG} strokeOpacity="0.6" />
+                <text x={tx + tw / 2} y={ay - 6} dy="0.32em" textAnchor="middle" fontSize="9.5" fill="#d6b56a">avg{unit ? `/${unit}` : ''}</text>
+                <text x={tx + tw / 2} y={ay + 7} dy="0.32em" textAnchor="middle" fontSize="11" fontWeight="700" fill="#f7cf7b"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtShort(average)}</text>
               </g>
             );
           })()}
