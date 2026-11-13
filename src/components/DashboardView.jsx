@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  Check, ChevronRight, ChevronLeft, Plus, Repeat2, Play, Square, CalendarClock, CalendarRange, KanbanSquare, Quote, Receipt, CircleDollarSign,
+  Check, ChevronRight, ChevronLeft, Plus, Repeat2, Play, Square, CalendarClock, CalendarRange, KanbanSquare, Quote, TrendingUp, CircleDollarSign,
   CheckSquare, Timer, X, CornerDownLeft, AlertCircle, Zap,
 } from 'lucide-react';
 import {
@@ -11,7 +11,7 @@ import {
   sessions, isRunning, durationMs, totalForDay, formatDuration, useNow, startSession, stopSession, recentLabels,
 } from '../services/focus';
 import {
-  transactions, useMoneySettings, formatMoney, monthKey, spentOn, ymd,
+  transactions, useMoneySettings, formatMoney, monthKey, ymd,
   emis, emiStats, incomeSources, receivedFrom, payEmi, receiveIncome, monthLabel,
 } from '../services/money';
 import { board, dueInfo, moveItem } from '../services/board';
@@ -22,7 +22,7 @@ import MeetingsToday from './MeetingsToday';
 const QUICK_ACTIONS = [
   { id: 'task', label: 'Task', icon: Plus, inline: true },
   { id: 'timer', label: 'Timer', icon: Play, inline: true },
-  { id: 'expense', label: 'Expense', icon: Receipt, section: 'Money' },
+  { id: 'income', label: 'Income', icon: TrendingUp, section: 'Money' },
   { id: 'board', label: 'Card', icon: KanbanSquare, section: 'Board' },
 ];
 
@@ -265,7 +265,6 @@ export default function DashboardView({
   /* ── money ── */
   const allTx = transactions.useAll();
   const settings = useMoneySettings();
-  const spentToday = spentOn(allTx, todayStr);
   const fmt = n => formatMoney(n, settings.currency);
   const thisMonth = monthKey();
   const emiList = emis.useAll();
@@ -348,7 +347,7 @@ export default function DashboardView({
       setQuickMode(m => (m === id ? null : id));
       setQuickText('');
       setTimeout(() => quickRef.current?.focus(), 30);
-    } else if (id === 'expense') go('money', 'overview');
+    } else if (id === 'income') go('money', 'overview');
     else go(id);
   };
   const submitQuick = async e => {
@@ -372,7 +371,6 @@ export default function DashboardView({
   if (tasks.length) summary.push(done === tasks.length ? 'All tasks done' : `${tasks.length - done} task${tasks.length - done === 1 ? '' : 's'} left`);
   if (overdueCount) summary.push(`${overdueCount} need${overdueCount === 1 ? 's' : ''} attention`);
   if (running.length) summary.push(`${running.length} timer${running.length === 1 ? '' : 's'} running`);
-  if (spentToday > 0) summary.push(`${fmt(spentToday)} spent`);
 
   return (
     <div className="h-full flex flex-col">

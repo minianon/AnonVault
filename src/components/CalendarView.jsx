@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ChevronLeft, ChevronRight, CalendarRange, KanbanSquare, CalendarClock, CircleDollarSign, CheckSquare,
-  Plus, Check, ArrowUpRight, Timer, Video, ExternalLink, Repeat2, ChevronDown, Wallet,
+  ChevronLeft, ChevronRight, CalendarRange, KanbanSquare, CheckSquare, Lightbulb,
+  Plus, Check, Timer, Video, ExternalLink, Repeat2, ChevronDown,
 } from 'lucide-react';
 import { board, addItem, moveItem, dueInfo } from '../services/board';
-import { emis, emiStats, payEmi, transactions, incomeSources, formatMoney, useMoneySettings, monthLabel, shiftMonth } from '../services/money';
+import { monthLabel, shiftMonth } from '../services/money';
+import { ideas as ideaStore } from '../services/ideas';
+import { usePref } from '../services/prefs';
 import { sessions, totalForDay, formatDuration, useFocusGoal } from '../services/focus';
 import { getTasksForDateSync, toggleTaskCompletion } from '../services/tasks';
 import { parseCapture, ymdOf } from '../services/nlp';
@@ -17,13 +19,15 @@ import TimeGrid from './TimeGrid';
 
 const VIEW_OPTIONS = [{ value: 'month', label: 'Month' }, { value: 'week', label: 'Week' }, { value: 'day', label: 'Day' }, { value: 'meetings', label: 'Meetings' }];
 
+/* What the Calendar shows: everything with a date to act on — meetings,
+   the checklist, Board cards, hackathon deadlines and ideas with a
+   deadline. Money (EMIs, income) lives in Money. */
 const KINDS = {
-  meeting:   { label: 'Meetings',  color: '#c49cff', icon: Video },
-  hackathon: { label: 'Deadlines', color: '#f0b445', icon: CalendarRange },
-  card:      { label: 'Board',     color: '#6c96ff', icon: KanbanSquare },
-  emi:       { label: 'EMIs',      color: '#f5768a', icon: CalendarClock },
-  income:    { label: 'Income',    color: '#4fd1a0', icon: CircleDollarSign },
-  task:      { label: 'Checklist', color: '#a1a1aa', icon: CheckSquare },
+  meeting:   { label: 'Meetings',   color: '#c49cff', icon: Video },
+  task:      { label: 'Checklist',  color: '#a1a1aa', icon: CheckSquare },
+  card:      { label: 'Board',      color: '#6c96ff', icon: KanbanSquare },
+  hackathon: { label: 'Hackathons', color: '#f0b445', icon: CalendarRange },
+  idea:      { label: 'Ideas',      color: '#f7cf7b', icon: Lightbulb },
 };
 const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -58,7 +62,7 @@ function NewMenu({ dayLabel, onPick }) {
       { id: 'card', icon: KanbanSquare, label: 'Board card', hint: 'due that day', color: '#6c96ff' },
     ] },
     { title: 'Elsewhere', items: [
-      { id: 'expense', icon: Wallet, label: 'Expense', hint: 'Money', color: '#f5768a' },
+      { id: 'idea', icon: Lightbulb, label: 'Idea', hint: 'Ideas', color: '#f7cf7b' },
       { id: 'focus', icon: Timer, label: 'Focus session', hint: 'Focus', color: '#4fd1a0' },
     ] },
   ];
@@ -92,7 +96,7 @@ function NewMenu({ dayLabel, onPick }) {
   );
 }
 
-export default function CalendarView({ applications = [], tasksVersion, setActiveTab, onSelectHackathon, onOpenChecklistDate, onTasksChange, onLock, onMenuToggle, showToast }) {
+export default function CalendarView({ applications = [], tasksVersion, setActiveTab, onSelectHackathon, onOpenIdea, onOpenChecklistDate, onTasksChange, onLock, onMenuToggle, showToast }) {
   const today = ymdOf(new Date());
   const [month, setMonth] = useState(today.slice(0, 7));
   const [selected, setSelected] = useState(today);
@@ -122,13 +126,10 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
   const [ticking, setTicking] = useState({});
 
   const cards = board.useAll();
-  const emiList = emis.useAll();
-  const tx = transactions.useAll();
-  const sourceList = incomeSources.useAll();
+  const ideaList = ideaStore.useAll();
+  const [archivedIdeas] = usePref('anonvault_ideas_archived', []);
   const focusList = sessions.useAll();
   const meetingList = meetingStore.useAll();
-  const settings = useMoneySettings();
-  const fmt = n => formatMoney(n, settings.currency);
 
   const days = useMemo(() => (view === 'week'
     ? Array.from({ length: 7 }, (_, i) => addDays(new Date(weekStart + 'T00:00:00'), i))
@@ -165,25 +166,11 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
       if (!c.due_date) continue;
       push(c.due_date, { kind: 'card', id: c.id, title: c.title, sub: c.label || '', time: c.due_time || null, done: c.status === 'done', overdue: dueInfo(c)?.tone === 'bad', item: c });
     }
-    for (const e of emiList) {
-      if (e.closed) continue;
-      const st = emiStats(e);
-      const start = e.start_month || rangeFrom.slice(0, 7);
-      for (let m = rangeFrom.slice(0, 7); m <= rangeTo.slice(0, 7); m = shiftMonth(m, 1)) {
-        if (m < start) continue;
-        if (!st.endless && st.endMonth && m > st.endMonth && !(e.payments || []).includes(m)) continue;
-        const dim = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate();
-        const day = Math.min(Number(e.due_day) || 1, dim);
-        const paid = (e.payments || []).includes(m);
-        if (m < today.slice(0, 7) && !paid) continue; // past months: only show what was ticked here
-        push(`${m}-${String(day).padStart(2, '0')}`, { kind: 'emi', id: e.id + m, title: e.name, sub: fmt(st.amount), done: paid, emi: e, month: m });
-      }
-    }
-    const sourceIds = new Set(sourceList.map(s => s.id));
-    for (const t of tx) {
-      if (t.type !== 'income') continue;
-      if (t.source_id && !sourceIds.has(t.source_id)) continue; // tick left behind by a deleted source
-      push(t.date, { kind: 'income', id: t.id, title: t.note || 'Income', sub: '+' + fmt(t.amount) });
+    // Ideas with a deadline (archived ones are out of the way on purpose).
+    const archived = new Set(Array.isArray(archivedIdeas) ? archivedIdeas : []);
+    for (const i of ideaList) {
+      if (!i.due_date || archived.has(i.id)) continue;
+      push(i.due_date, { kind: 'idea', id: i.id, title: i.title, sub: i.status === 'ready' ? 'Ready to build' : i.status === 'exploring' ? 'Exploring' : 'Idea', overdue: i.due_date < today });
     }
     // The whole checklist: one-off tasks on their date, repeating ones on
     // every day they're due, each with that day's done state.
@@ -199,7 +186,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     return map;
     // tasksVersion re-reads the checklist cache after edits elsewhere
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applications, cards, emiList, tx, sourceList, meetingList, days, rangeFrom, rangeTo, tasksVersion, settings.currency, today]);
+  }, [applications, cards, ideaList, archivedIdeas, meetingList, days, rangeFrom, rangeTo, tasksVersion, today]);
 
   const visible = date => (byDate.get(date) || [])
     .filter(e => !hidden.has(e.kind))
@@ -210,7 +197,6 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
   const dayTasksDone = dayTasks.filter(e => e.done).length;
   const selDate = new Date(selected + 'T00:00:00');
   const focusMs = totalForDay(focusList, selDate);
-  const spent = tx.filter(t => t.type !== 'income' && t.date === selected).reduce((s, t) => s + Number(t.amount || 0), 0);
 
   // header counts for the month (or week) on screen
   const inMonth = [...byDate.entries()].filter(([d]) => (view === 'month' ? d.startsWith(month) : d >= rangeFrom && d <= rangeTo)).flatMap(([, l]) => l);
@@ -319,8 +305,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
     if (ev.kind === 'meeting') setMeetingEdit({ meeting: ev.meeting, date: ev.date });
     else if (ev.kind === 'card') { setActiveTab('board'); setTimeout(() => window.dispatchEvent(new CustomEvent('anonvault:open-card', { detail: ev.id })), 60); }
     else if (ev.kind === 'hackathon') onSelectHackathon?.(ev.id);
-    else if (ev.kind === 'emi') { setActiveTab('money'); window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: 'emi' })); }
-    else if (ev.kind === 'income') { setActiveTab('money'); window.dispatchEvent(new CustomEvent('anonvault:money-tab', { detail: 'overview' })); }
+    else if (ev.kind === 'idea') { if (onOpenIdea) onOpenIdea(ev.id); else setActiveTab('ideas'); }
     else if (ev.kind === 'task') { if (onOpenChecklistDate) onOpenChecklistDate(ev.date); else setActiveTab('tasks'); }
   };
 
@@ -346,7 +331,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
       setTimeout(() => { addInputRef.current?.focus(); addInputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 0);
     } else {
       // Other sections open their own "new" form on this event.
-      setActiveTab(kind === 'expense' ? 'money' : 'focus');
+      setActiveTab(kind === 'idea' ? 'ideas' : 'focus');
       setTimeout(() => window.dispatchEvent(new CustomEvent('anonvault:new')), 80);
     }
   };
@@ -357,9 +342,6 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
       const prev = ev.item.status;
       moveItem(ev.id, 'done');
       showToast?.('success', 'Done', ev.title, 5000, { label: 'Undo', onClick: () => moveItem(ev.id, prev) });
-    } else if (ev.kind === 'emi') {
-      const r = payEmi(ev.emi);
-      showToast?.('success', `${monthLabel(r.month, { month: 'short' })} EMI paid`, ev.title, 6000, { label: 'Undo', onClick: r.undo });
     }
   };
 
@@ -378,7 +360,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
           { value: count('meeting'), label: 'meetings' },
           { value: count('hackathon'), label: 'deadlines', tone: 'warn' },
           { value: count('card'), label: 'cards due' },
-          { value: count('emi'), label: 'EMIs left', tone: 'bad' },
+          { value: count('idea'), label: 'idea deadlines' },
         ]}
         onMenuToggle={onMenuToggle} onLock={onLock}
         actions={<>
@@ -593,10 +575,9 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                   {selected === today ? 'Today' : selDate.toLocaleDateString(undefined, { weekday: 'long' })}
                 </p>
                 <p className="text-[12.5px] text-slate-500">{selDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                {(focusMs > 0 || spent > 0) && (
+                {focusMs > 0 && (
                   <div className="flex gap-3 mt-2 text-[12px] text-slate-400">
                     {focusMs > 0 && <span className="inline-flex items-center gap-1"><Timer size={12} className="text-slate-500" />{formatDuration(focusMs)} focused</span>}
-                    {spent > 0 && <span className="inline-flex items-center gap-1"><ArrowUpRight size={12} className="text-slate-500" />{fmt(spent)} spent</span>}
                   </div>
                 )}
               </div>
@@ -616,12 +597,12 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
               </form>
 
               {dayEvents.length === 0 ? (
-                <Empty icon={CalendarRange} title="Nothing on this day" body="Meetings, your checklist, Board cards with a due date, hackathon deadlines, EMIs and income all show up here." />
+                <Empty icon={CalendarRange} title="Nothing on this day" body="Meetings, your checklist, Board cards with a due date, hackathon deadlines and ideas with a deadline all show up here." />
               ) : dayOthers.length > 0 && (
                 <ul className="p-2">
                   {dayOthers.map(ev => {
                     const K = KINDS[ev.kind];
-                    const canTick = (ev.kind === 'card' || ev.kind === 'emi') && !ev.done;
+                    const canTick = ev.kind === 'card' && !ev.done;
                     return (
                       <li key={ev.kind + ev.id} {...dragProps(ev)}
                         className={`group flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.03] transition-colors ${ev.kind === 'card' && !ev.done ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === ev.id ? 'opacity-40' : ''}`}>
@@ -643,7 +624,7 @@ export default function CalendarView({ applications = [], tasksVersion, setActiv
                           </a>
                         )}
                         {canTick && (
-                          <button onClick={() => quickDone(ev)} title={ev.kind === 'emi' ? 'Mark paid' : 'Mark done'}
+                          <button onClick={() => quickDone(ev)} title="Mark done"
                             className="w-7 h-7 rounded-md border border-white/[0.1] text-slate-400 hover:text-emerald-300 hover:border-emerald-400/40 flex items-center justify-center cursor-pointer shrink-0 transition-colors">
                             <Check size={13} />
                           </button>

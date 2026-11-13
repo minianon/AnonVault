@@ -56,7 +56,44 @@ export const METHODS = [
   { id: 'bank', label: 'Bank' },
 ];
 
-const ALL_CATS = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
+/* Extra income: money that isn't one of your regular income sources. */
+export const EXTRA_INCOME_CATEGORIES = [
+  { id: 'trade',    label: 'Trade',   color: '#fb923c' },
+  { id: 'topmate',  label: 'Topmate', color: '#6c96ff' },
+  { id: 'colab',    label: 'Colab',   color: '#c49cff' },
+  { id: 'other-in', label: 'Other',   color: '#8d8d96' },
+];
+/** An income entry that isn't ticked off from an income source. */
+export const isExtraIncome = t => t.type === 'income' && !t.source_id;
+
+/* Words in a note that say which kind of extra income it is. Quotex
+   payouts were logged as "Other" before Trade existed; they're trades. */
+const KIND_RULES = [
+  { category: 'trade', re: /\bquotex\b/i },
+];
+/** The kind a note implies, or null. */
+export function kindFromNote(note) {
+  return KIND_RULES.find(r => r.re.test(note || ''))?.category || null;
+}
+
+/**
+ * File existing extra income under the kind its note implies (e.g. every
+ * "Quotex" entry → Trade). Only touches income that isn't from an income
+ * source and isn't already that kind; dates, amounts and notes are kept.
+ * Safe to run on every sync — it does nothing once everything is filed.
+ * Returns how many entries it moved.
+ */
+export function applyIncomeRules() {
+  let moved = 0;
+  for (const t of transactions.getAll()) {
+    if (!isExtraIncome(t)) continue;
+    const kind = kindFromNote(t.note);
+    if (kind && t.category !== kind) { transactions.update(t.id, { category: kind }); moved++; }
+  }
+  return moved;
+}
+
+const ALL_CATS = [...EXTRA_INCOME_CATEGORIES, ...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
 export function categoryMeta(id) {
   return ALL_CATS.find(c => c.id === id) || { id, label: id || 'Other', color: '#8d8d96' };
 }

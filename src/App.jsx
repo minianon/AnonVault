@@ -16,7 +16,7 @@ import {
 } from './services/supabase';
 import { getTasksForDateSync, loadAllTasks, addTask } from './services/tasks';
 import { syncNotes } from './services/journal';
-import { transactions as moneyStore, incomeSources, investments, loans, incomeIdeas, emis, summarizeMonth, monthKey, formatMoney } from './services/money';
+import { transactions as moneyStore, incomeSources, investments, loans, incomeIdeas, emis, summarizeMonth, monthKey, formatMoney, applyIncomeRules } from './services/money';
 import { companies } from './services/work';
 import { board, addItem as addBoardItem } from './services/board';
 import { ideas as ideaStore, stepsIn } from './services/ideas';
@@ -49,7 +49,11 @@ function syncLocalFirstStores() {
     board.sync(),
     quoteStore.sync(),
     meetingStore.sync(),
-  ]);
+  ]).then(result => {
+    // e.g. old "Quotex" income logged as Other → Trade (once; syncs up).
+    applyIncomeRules();
+    return result;
+  });
 }
 
 
@@ -703,6 +707,7 @@ function AppInner() {
       links: newIdea.links || [],
       tags: newIdea.tags || [],
       status: newIdea.status || 'new',
+      due_date: newIdea.due_date || null,
     });
     showToast('success', 'Idea saved', `"${added.title}"`);
     return added;
@@ -1169,6 +1174,7 @@ function AppInner() {
                 <CalendarView applications={applications} tasksVersion={tasksVersion} setActiveTab={setActiveTab}
                   onSelectHackathon={id => { setInitHackathonId(id); setActiveTab('timeline'); }}
                   onOpenChecklistDate={d => { setInitTaskDate(d); setActiveTab('tasks'); }}
+                  onOpenIdea={id => { setInitIdeaId(id); setActiveTab('ideas'); }}
                   onTasksChange={refreshPendingTasks}
                   onLock={handleLock} onMenuToggle={menu} showToast={showToast} />
               </Suspense></div>

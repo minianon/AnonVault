@@ -44,13 +44,19 @@ function Mark({ text, q }) {
 
 const norm = v => (v || '').toString().toLowerCase();
 
-/* "250 lunch", "₹1,200 rent", "120.5 uber" → { amount, note } */
-function parseExpense(q) {
+/* "500 topmate", "₹2,000 trade nifty", "1500 colab" → { amount, note, category }
+   for extra income. The kind comes from the words in the note. */
+function parseIncome(q) {
   const m = q.trim().match(/^[₹$€£]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(.*)$/);
   if (!m) return null;
   const amount = parseFloat(m[1].replace(/,/g, ''));
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  return { amount, note: m[2].trim() };
+  const note = m[2].trim();
+  const n = note.toLowerCase();
+  const category = /\btrad(e|ing)\b|quotex|nifty|options|stock|crypto/.test(n) ? 'trade'
+    : /topmate|mentor|session|call/.test(n) ? 'topmate'
+    : /colab|collab|brand|sponsor/.test(n) ? 'colab' : 'other-in';
+  return { amount, note, category };
 }
 
 export default function CommandPalette({
@@ -98,7 +104,7 @@ export default function CommandPalette({
     if (!q) {
       const out = [
         { kind: 'timer', id: 'hint-timer', title: 'Start a timer…', hint: true, group: 'Quick actions' },
-        { kind: 'money', id: 'hint-money', title: 'Log an expense…', hint: true, group: 'Quick actions', sub: 'Type an amount, e.g. 250 lunch' },
+        { kind: 'money', id: 'hint-money', title: 'Log extra income…', hint: true, group: 'Quick actions', sub: 'Type an amount, e.g. 500 topmate' },
       ];
       if (running.length) out.push({ kind: 'stop', id: 'stop-all', title: `Stop ${running.length} running timer${running.length === 1 ? '' : 's'}`, group: 'Quick actions' });
       NAV.forEach((s, i) => out.push({ kind: 'section', id: 'sec-' + s.id, title: s.label, tab: s.id, group: 'Navigate', shortcut: i < 9 ? String(i + 1) : i === 9 ? '0' : null }));
@@ -107,11 +113,11 @@ export default function CommandPalette({
 
     const hit = (...fields) => fields.some(f => norm(f).includes(q));
     const out = [];
-    const expense = parseExpense(raw);
+    const expense = parseIncome(raw); // named for the old flow; it's extra income now
 
     if (expense) {
-      out.push({ kind: 'money', id: 'log-expense', group: 'Actions', expense,
-        title: `Log expense ${formatMoney(expense.amount)}${expense.note ? ` · ${expense.note}` : ''}` });
+      out.push({ kind: 'money', id: 'log-income', group: 'Actions', expense,
+        title: `Log extra income ${formatMoney(expense.amount)} · ${categoryMeta(expense.category).label}${expense.note ? ` · ${expense.note}` : ''}` });
     }
 
     // Everything you've stored, grouped by where it lives; a few per group.
@@ -145,7 +151,7 @@ export default function CommandPalette({
       meta: `${formatDuration(v.ms)} · ${v.n} session${v.n === 1 ? '' : 's'}`,
     })));
     group('Money', [
-      ...txList.filter(t => hit(t.note, categoryMeta(t.category).label))
+      ...txList.filter(t => t.type === 'income' && hit(t.note, categoryMeta(t.category).label))
         .map(t => ({ kind: t.type === 'income' ? 'income' : 'expense', id: 'x-' + t.id, title: t.note || categoryMeta(t.category).label,
           sub: `${t.type === 'income' ? '+' : ''}${formatMoney(t.amount)}`, tab: 'money', moneyTab: 'overview', meta: day(t.date) })),
       ...sourceList.filter(x => hit(x.name, x.note)).map(x => ({ kind: 'income', id: 'src-' + x.id, title: x.name, tab: 'money', moneyTab: 'income', meta: 'income source' })),
@@ -207,7 +213,7 @@ export default function CommandPalette({
         break;
       }
       case 'money':
-        transactions.add({ type: 'expense', amount: item.expense.amount, category: 'other', note: item.expense.note, method: 'upi', date: ymd() });
+        transactions.add({ type: 'income', amount: item.expense.amount, category: item.expense.category, note: item.expense.note, method: 'bank', date: ymd(), source_id: null });
         break;
       default:
         if (item.cardId) { openCard(item.cardId); break; }

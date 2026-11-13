@@ -12,7 +12,7 @@ import { IDEA_STAGES, stageOf, stepsIn } from '../services/ideas';
 import { useListNav } from '../utils/useListNav';
 import BulkBar from './BulkBar';
 import { PageHeader, Empty, Card, Modal, Select } from './ui';
-import { EditorLayout, PropRow, TitleInput, DescriptionInput, SectionTitle, LinksEditor } from './editor';
+import { EditorLayout, PropRow, TitleInput, DescriptionInput, SectionTitle, LinksEditor, DueField } from './editor';
 import { uploadIdeaImage } from '../services/supabase';
 import { formatDate } from '../utils/helpers';
 import { usePref } from '../services/prefs';
@@ -348,6 +348,7 @@ export default function IdeaVaultView({
   const pinnedIds = useMemo(() => (Array.isArray(pinnedPref) ? pinnedPref : []), [pinnedPref]);
   const [formStarred, setFormStarred] = useState(false);
   const [formStatus, setFormStatus] = useState('new');
+  const [formDue, setFormDue] = useState(''); // optional deadline, shown on the Calendar
   const [stage, setStage] = useState(''); // '' = every stage
 
   const togglePin = (id) => {
@@ -432,6 +433,7 @@ export default function IdeaVaultView({
     setEditingIdea(null);
     setFormStarred(false);
     setFormStatus('new');
+    setFormDue('');
   };
 
   const { isArchived, toggleArchived, archivedIds } = useArchive('anonvault_ideas_archived');
@@ -479,6 +481,7 @@ export default function IdeaVaultView({
     setTagInputVal('');
     setFormStarred(pinnedIds.includes(idea.id));
     setFormStatus(stageOf(idea).id);
+    setFormDue(idea.due_date || '');
     setFormImages(ideaImages(idea));
     setFormLinks(editorLinks(idea.links));
     setUploading(0); setUploadError('');
@@ -607,6 +610,7 @@ export default function IdeaVaultView({
       links:     validLinks,
       tags:      finalTags,
       status:    formStatus,
+      due_date:  formDue || null,
     };
 
     if (editingIdea) {
@@ -1003,6 +1007,9 @@ export default function IdeaVaultView({
                 ))}
               </div>
             </PropRow>
+            <PropRow icon={Clock} label="Deadline">
+              <DueField compact withTime={false} date={formDue} onDate={setFormDue} placeholder="No deadline" />
+            </PropRow>
             <PropRow icon={Tag} label="Tags" top>
               <TagEditor tags={formTags} input={tagInputVal} setInput={setTagInputVal}
                 onAdd={addFormTag} onRemove={removeFormTag} suggestions={allTags} />
@@ -1149,6 +1156,13 @@ function IdeaDetailModal({
               );
             })}
           </div>
+        </PropRow>
+        <PropRow icon={Clock} label="Deadline">
+          {idea.due_date ? (
+            <span className={`text-[12.5px] ${idea.due_date < new Date().toISOString().slice(0, 10) ? 'text-rose-300' : 'text-slate-200'}`}>
+              {new Date(idea.due_date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
+          ) : <span className="text-[12.5px] text-slate-600">None</span>}
         </PropRow>
         <PropRow icon={Rocket} label="Board">
           {promotedTo ? (

@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS public.ideas (
 );
 -- Idea stage: new / exploring / ready
 ALTER TABLE public.ideas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'new';
+-- Optional deadline, shown on the Calendar
+ALTER TABLE public.ideas ADD COLUMN IF NOT EXISTS due_date TEXT;
 
 -- Daily checklist
 CREATE TABLE IF NOT EXISTS public.tasks (
