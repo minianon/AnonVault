@@ -13,11 +13,13 @@ import {
 import {
   transactions, useMoneySettings, formatMoney, monthKey, ymd,
   emis, emiStats, incomeSources, receivedFrom, payEmi, receiveIncome, monthLabel,
+  isExtraIncome, categoryMeta,
 } from '../services/money';
 import { board, dueInfo, moveItem } from '../services/board';
 import { quotes, dayOffset } from '../services/quotes';
 import { PageHeader, Card, CardHeader, LinkButton, Empty, StreakIcon } from './ui';
 import MeetingsToday from './MeetingsToday';
+import { ExtraIncomeForm } from './MoneyOverview';
 
 const QUICK_ACTIONS = [
   { id: 'task', label: 'Task', icon: Plus, inline: true },
@@ -331,6 +333,14 @@ export default function DashboardView({
     });
   }
   attention.sort((a, b) => a.rank - b.rank);
+
+  // Extra income logged today, shown next to the quick log form.
+  const extraToday = allTx.filter(t => isExtraIncome(t) && t.date === todayStr).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const logExtra = row => {
+    const t = transactions.add(row);
+    showToast?.('success', 'Extra income added', `${fmt(t.amount)} · ${categoryMeta(t.category).label}`, 6000,
+      { label: 'Undo', onClick: () => transactions.remove(t.id) });
+  };
   const overdueCount = attention.filter(a => a.tone === 'bad').length;
 
   /* ── hero ── */
@@ -508,6 +518,14 @@ export default function DashboardView({
               <Card className="overflow-hidden">
                 <CardHeader icon={AlertCircle} title="Needs attention" meta={attention.length || null}
                   action={<LinkButton onClick={() => setActiveTab('calendar')}>Calendar <ChevronRight size={12} /></LinkButton>} />
+                {/* log extra income without leaving Today */}
+                <div className="mx-4 mb-3 rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-[12.5px] font-medium text-slate-300 inline-flex items-center gap-1.5"><TrendingUp size={13} className="text-emerald-400" />Log extra income</span>
+                    {extraToday > 0 && <span className="text-[12px] text-emerald-300 tabular-nums">+{fmt(extraToday)} today</span>}
+                  </div>
+                  <ExtraIncomeForm compact onSubmit={logExtra} />
+                </div>
                 {attention.length === 0 ? (
                   <p className="px-4 pb-4 text-[12.5px] text-slate-500">Nothing due — no overdue cards, close deadlines or open payments.</p>
                 ) : (

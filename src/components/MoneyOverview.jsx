@@ -14,8 +14,10 @@ import {
 const num = v => Number(v) || 0;
 const EXTRA_IDS = new Set(EXTRA_INCOME_CATEGORIES.map(c => c.id));
 
-/* ── log / edit an extra-income entry ───────────────────── */
-function ExtraIncomeForm({ initial, onSubmit, submitLabel = 'Add', amountRef }) {
+/* ── log / edit an extra-income entry ───────────────────────
+   `compact` (Today's Needs attention card): smaller, no date picker —
+   it's logged for today. */
+export function ExtraIncomeForm({ initial, onSubmit, submitLabel = 'Add', amountRef, compact = false }) {
   const [amount, setAmount] = useState(initial ? String(initial.amount ?? '') : '');
   // Older entries may use a category from before (Freelance, Gift…); keep it visible.
   const [category, setCategory] = useState(initial?.category || 'trade');
@@ -28,7 +30,7 @@ function ExtraIncomeForm({ initial, onSubmit, submitLabel = 'Add', amountRef }) 
     e.preventDefault();
     const value = parseFloat(String(amount).replace(/,/g, ''));
     if (!Number.isFinite(value) || value <= 0) { setShake(true); setTimeout(() => setShake(false), 400); return; }
-    onSubmit({ type: 'income', amount: Math.round(value * 100) / 100, category, note: note.trim(), date, method: initial?.method || 'bank', source_id: null });
+    onSubmit({ type: 'income', amount: Math.round(value * 100) / 100, category, note: note.trim(), date: compact ? ymd() : date, method: initial?.method || 'bank', source_id: null });
     if (!initial) { setAmount(''); setNote(''); }
   };
 
@@ -39,7 +41,7 @@ function ExtraIncomeForm({ initial, onSubmit, submitLabel = 'Add', amountRef }) 
           const on = c.id === category;
           return (
             <button key={c.id} type="button" role="radio" aria-checked={on} onClick={() => setCategory(c.id)}
-              className={`h-8 px-3 rounded-lg text-[12.5px] font-medium inline-flex items-center gap-1.5 border transition-colors cursor-pointer ${
+              className={`${compact ? 'h-7 px-2.5 text-[12px]' : 'h-8 px-3 text-[12.5px]'} rounded-lg font-medium inline-flex items-center gap-1.5 border transition-colors cursor-pointer ${
                 on ? 'text-slate-50 border-white/[0.18]' : 'border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'}`}
               style={on ? { background: c.color + '26' } : undefined}>
               <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />{c.label}
@@ -47,15 +49,15 @@ function ExtraIncomeForm({ initial, onSubmit, submitLabel = 'Add', amountRef }) 
           );
         })}
       </div>
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className={`flex gap-2 ${compact ? 'flex-wrap sm:flex-nowrap' : 'flex-col sm:flex-row'}`}>
         <input ref={amountRef} value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
           inputMode="decimal" placeholder="Amount" aria-label="Amount"
-          className={`${inputCls} sm:!w-36 font-medium tabular-nums ${shake ? 'animate-shake' : ''}`} />
-        <input value={note} placeholder="Note (e.g. Quotex, mentoring call)"
+          className={`${inputCls} ${compact ? '!w-28 shrink-0' : 'sm:!w-36'} font-medium tabular-nums ${shake ? 'animate-shake' : ''}`} />
+        <input value={note} placeholder={compact ? 'Note (optional)' : 'Note (e.g. Quotex, mentoring call)'}
           onChange={e => { setNote(e.target.value); const k = kindFromNote(e.target.value); if (k) setCategory(k); }}
-          className={`${inputCls} flex-1`} aria-label="Note" />
+          className={`${inputCls} flex-1 min-w-[120px]`} aria-label="Note" />
         <div className="flex gap-2">
-          <DateInput value={date} onChange={v => setDate(v || ymd())} ariaLabel="Date" className="flex-1 sm:w-[150px]" />
+          {!compact && <DateInput value={date} onChange={v => setDate(v || ymd())} ariaLabel="Date" className="flex-1 sm:w-[150px]" />}
           <button type="submit" className="btn-primary h-9 px-4 rounded-lg text-[13px] cursor-pointer inline-flex items-center gap-1.5 shrink-0">
             {initial ? submitLabel : <><Plus size={14} />{submitLabel}</>}
           </button>
